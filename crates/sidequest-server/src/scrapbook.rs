@@ -142,8 +142,8 @@ pub fn build_scrapbook_entry(
         .filter_map(|entry| {
             let name = NonBlankString::new(&entry.name).ok()?;
             let role = NonBlankString::new(&entry.role).ok()?;
-            let disposition = NonBlankString::new(&entry.ocean_summary)
-                .unwrap_or_else(|_| role.clone());
+            let disposition =
+                NonBlankString::new(&entry.ocean_summary).unwrap_or_else(|_| role.clone());
             Some(NpcRef {
                 name,
                 role,

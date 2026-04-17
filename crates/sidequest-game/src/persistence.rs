@@ -490,11 +490,18 @@ impl SessionStore for SqliteStore {
                     serde_json::from_str(&npcs_json).unwrap_or_default();
                 Ok(sidequest_protocol::ScrapbookEntryPayload {
                     turn_id,
-                    scene_title: scene_title.and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
+                    scene_title: scene_title
+                        .and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
                     scene_type,
-                    location: sidequest_protocol::NonBlankString::new(&location).unwrap_or_else(|_| sidequest_protocol::NonBlankString::new("unknown").expect("literal")),
-                    image_url: image_url.and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
-                    narrative_excerpt: sidequest_protocol::NonBlankString::new(&narrative_excerpt).unwrap_or_else(|_| sidequest_protocol::NonBlankString::new("…").expect("literal")),
+                    location: sidequest_protocol::NonBlankString::new(&location).unwrap_or_else(
+                        |_| sidequest_protocol::NonBlankString::new("unknown").expect("literal"),
+                    ),
+                    image_url: image_url
+                        .and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
+                    narrative_excerpt: sidequest_protocol::NonBlankString::new(&narrative_excerpt)
+                        .unwrap_or_else(|_| {
+                            sidequest_protocol::NonBlankString::new("…").expect("literal")
+                        }),
                     world_facts,
                     npcs_present,
                 })
@@ -689,18 +696,28 @@ pub enum PersistenceCommand {
     },
     /// Append a scrapbook entry.
     AppendScrapbookEntry {
+        /// Genre slug for the session.
         genre_slug: String,
+        /// World slug for the session.
         world_slug: String,
+        /// Player name for session isolation.
         player_name: String,
+        /// The scrapbook entry payload to persist.
         entry: sidequest_protocol::ScrapbookEntryPayload,
+        /// Reply channel.
         reply: oneshot::Sender<Result<(), PersistError>>,
     },
     /// Load all scrapbook entries.
     LoadScrapbookEntries {
+        /// Genre slug for the session.
         genre_slug: String,
+        /// World slug for the session.
         world_slug: String,
+        /// Player name for session isolation.
         player_name: String,
-        reply: oneshot::Sender<Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError>>,
+        /// Reply channel carrying the loaded entries.
+        reply:
+            oneshot::Sender<Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError>>,
     },
     /// Graceful shutdown.
     Shutdown,

@@ -162,6 +162,7 @@ fn test_character() -> Character {
         known_facts: vec![],
         affinities: vec![],
         is_friendly: true,
+        resolved_archetype: None,
     }
 }
 

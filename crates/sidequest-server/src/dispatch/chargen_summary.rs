@@ -246,6 +246,8 @@ pub fn render_confirmation_summary(
             rolled_stats: None,
             choice: None,
             character: None,
+            action: None,
+            target_step: None,
         },
         player_id: player_id.to_string(),
     }

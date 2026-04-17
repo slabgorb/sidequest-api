@@ -6,6 +6,10 @@
 
 use crate::error::GenreError;
 use crate::genre_code::GenreCode;
+use crate::models::archetype_axes::BaseArchetypes;
+use crate::models::archetype_constraints::ArchetypeConstraints;
+use crate::models::archetype_funnels::ArchetypeFunnels;
+use crate::models::npc_traits::NpcTraitsDatabase;
 use crate::models::*;
 use crate::resolve::resolve_trope_inheritance;
 use serde::de::DeserializeOwned;
@@ -58,6 +62,22 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     let equipment_tables: Option<EquipmentTables> =
         load_yaml_optional(&path.join("equipment_tables.yaml"))?;
 
+    let base_archetypes: Option<BaseArchetypes> = path
+        .parent() // genre_packs/
+        .and_then(|p| p.parent()) // content root
+        .map(|root| load_yaml_optional(&root.join("archetypes_base.yaml")))
+        .transpose()?
+        .flatten();
+    let npc_traits: Option<NpcTraitsDatabase> = path
+        .parent() // genre_packs/
+        .and_then(|p| p.parent()) // content root
+        .map(|root| load_yaml_optional(&root.join("npc_traits.yaml")))
+        .transpose()?
+        .flatten();
+
+    let archetype_constraints: Option<ArchetypeConstraints> =
+        load_yaml_optional(&path.join("archetype_constraints.yaml"))?;
+
     // Load worlds and scenarios from subdirectories
     let worlds = load_subdirectories(path, "worlds", |p| load_single_world(p, &genre_tropes))?;
     let scenarios = load_subdirectories(path, "scenarios", load_single_scenario)?;
@@ -87,6 +107,9 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         openings,
         backstory_tables,
         equipment_tables,
+        base_archetypes,
+        archetype_constraints,
+        npc_traits,
     })
 }
 
@@ -182,6 +205,9 @@ fn load_single_world(
         load_yaml_optional(&world_path.join("visual_style.yaml"))?;
     let history: Option<serde_json::Value> = load_yaml_optional(&world_path.join("history.yaml"))?;
 
+    let archetype_funnels: Option<ArchetypeFunnels> =
+        load_yaml_optional(&world_path.join("archetype_funnels.yaml"))?;
+
     // Portrait manifest — rich appearance descriptions for NPC portrait generation.
     let portrait_manifest: Vec<PortraitManifestEntry> = {
         #[derive(serde::Deserialize)]
@@ -206,6 +232,7 @@ fn load_single_world(
         history,
         legends_raw,
         portrait_manifest,
+        archetype_funnels,
     })
 }
 

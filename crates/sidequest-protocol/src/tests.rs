@@ -279,6 +279,8 @@ mod message_type_tests {
                 rolled_stats: None,
                 choice: None,
                 character: None,
+                action: None,
+                target_step: None,
             },
             player_id: String::new(),
         };
@@ -286,6 +288,99 @@ mod message_type_tests {
         assert!(json.contains(r#""type":"CHARACTER_CREATION""#));
         let decoded: GameMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(msg, decoded);
+    }
+
+    // -----------------------------------------------------------------------
+    // Story 37-7: Chargen back button — payload must accept `action` field
+    // -----------------------------------------------------------------------
+
+    /// The UI sends `{ action: "back" }` when the player clicks the back
+    /// button during chargen. The payload struct must have an `action` field
+    /// (or equivalent) to accept this. With `deny_unknown_fields`, a missing
+    /// field causes silent deserialization failure — the back button does nothing.
+    #[test]
+    fn chargen_payload_deserializes_action_back() {
+        let json = r#"{
+            "type": "CHARACTER_CREATION",
+            "payload": { "phase": "scene", "action": "back" },
+            "player_id": "test-player"
+        }"#;
+        let result: Result<GameMessage, _> = serde_json::from_str(json);
+        assert!(
+            result.is_ok(),
+            "CHARACTER_CREATION with action:back must deserialize successfully.\n\
+             deny_unknown_fields on CharacterCreationPayload rejects the 'action' field \
+             because the struct has no such field. The UI's back button payload is silently \
+             rejected.\nError: {:?}",
+            result.err()
+        );
+
+        // Once deserialization works, verify the action value is preserved
+        let msg = result.unwrap();
+        let payload_json = serde_json::to_value(&msg).unwrap();
+        let action = payload_json
+            .pointer("/payload/action")
+            .and_then(|v| v.as_str());
+        assert_eq!(
+            action,
+            Some("back"),
+            "action field must round-trip through serialization"
+        );
+    }
+
+    /// The UI sends `{ action: "edit", target_step: N }` when editing from
+    /// the review screen. Both `action` and `target_step` must deserialize.
+    #[test]
+    fn chargen_payload_deserializes_action_edit_with_target_step() {
+        let json = r#"{
+            "type": "CHARACTER_CREATION",
+            "payload": { "phase": "confirmation", "action": "edit", "target_step": 2 },
+            "player_id": "test-player"
+        }"#;
+        let result: Result<GameMessage, _> = serde_json::from_str(json);
+        assert!(
+            result.is_ok(),
+            "CHARACTER_CREATION with action:edit + target_step must deserialize.\n\
+             Error: {:?}",
+            result.err()
+        );
+
+        let msg = result.unwrap();
+        let payload_json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(
+            payload_json
+                .pointer("/payload/action")
+                .and_then(|v| v.as_str()),
+            Some("edit"),
+            "action field must be 'edit'"
+        );
+        assert_eq!(
+            payload_json
+                .pointer("/payload/target_step")
+                .and_then(|v| v.as_u64()),
+            Some(2),
+            "target_step must be preserved for edit navigation"
+        );
+    }
+
+    /// A chargen payload WITHOUT an action field must still work (backwards
+    /// compatible — existing scene/confirmation/continue messages don't have it).
+    #[test]
+    fn chargen_payload_without_action_still_deserializes() {
+        let json = r#"{
+            "type": "CHARACTER_CREATION",
+            "payload": { "phase": "scene", "choice": "1" },
+            "player_id": "test-player"
+        }"#;
+        // This must always work — no new fields in the payload
+        let msg: GameMessage = serde_json::from_str(json)
+            .expect("CHARACTER_CREATION without action must always deserialize");
+        match msg {
+            GameMessage::CharacterCreation { .. } => {
+                // Backwards-compatible: no action field, still deserializes
+            }
+            other => panic!("Expected CharacterCreation, got {:?}", other),
+        }
     }
 
     #[test]
@@ -884,11 +979,17 @@ mod player_location_tests {
         match &decoded {
             GameMessage::PartyStatus { payload, .. } => {
                 assert_eq!(
-                    payload.members[0].current_location.as_ref().map(|s| s.as_str()),
+                    payload.members[0]
+                        .current_location
+                        .as_ref()
+                        .map(|s| s.as_str()),
                     Some("The Rusty Cantina")
                 );
                 assert_eq!(
-                    payload.members[1].current_location.as_ref().map(|s| s.as_str()),
+                    payload.members[1]
+                        .current_location
+                        .as_ref()
+                        .map(|s| s.as_str()),
                     Some("Scrapyard Gate")
                 );
             }
@@ -954,7 +1055,10 @@ mod player_location_tests {
         match &msg {
             GameMessage::PartyStatus { payload, .. } => {
                 assert_eq!(
-                    payload.members[0].current_location.as_ref().map(|s| s.as_str()),
+                    payload.members[0]
+                        .current_location
+                        .as_ref()
+                        .map(|s| s.as_str()),
                     Some("Market Square")
                 );
             }

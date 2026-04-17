@@ -156,6 +156,10 @@ pub struct AccumulatedChoices {
     pub stat_bonuses: HashMap<String, i32>,
     /// Accumulated pronoun hint (last one wins).
     pub pronoun_hint: Option<String>,
+    /// Jungian archetype axis hint (last one wins).
+    pub jungian_hint: Option<String>,
+    /// RPG role axis hint (last one wins).
+    pub rpg_role_hint: Option<String>,
 }
 
 /// Errors from CharacterBuilder operations.
@@ -499,6 +503,47 @@ impl CharacterBuilder {
         None
     }
 
+    /// Navigate backward to the previous scene, undoing the last scene result.
+    ///
+    /// Pops the most recent `SceneResult` and sets the phase to the previous
+    /// scene index. Returns Ok(()) if successful, Err if already at the first
+    /// scene or in Confirmation with no results.
+    pub fn go_back(&mut self) -> Result<(), BuilderError> {
+        if self.results.is_empty() {
+            return Err(BuilderError::WrongPhase {
+                expected: "InProgress with history".to_string(),
+                actual: "no previous scenes to return to".to_string(),
+            });
+        }
+        // Pop the last result — this undoes the choice for that scene
+        self.results.pop();
+        // Set phase to the scene we're returning to
+        let target = self.results.len();
+        self.phase = BuilderPhase::InProgress {
+            scene_index: target,
+        };
+        Ok(())
+    }
+
+    /// Jump to a specific scene index, discarding all results from that
+    /// scene onward. Used by "edit" from the review screen.
+    ///
+    /// Returns Err if `target` is out of range or there are no results to revert.
+    pub fn go_to_scene(&mut self, target: usize) -> Result<(), BuilderError> {
+        if target >= self.scenes.len() {
+            return Err(BuilderError::WrongPhase {
+                expected: format!("scene index < {}", self.scenes.len()),
+                actual: format!("target scene index {}", target),
+            });
+        }
+        // Truncate results to the target scene — discard everything from target onward
+        self.results.truncate(target);
+        self.phase = BuilderPhase::InProgress {
+            scene_index: target,
+        };
+        Ok(())
+    }
+
     /// Auto-advance through the current scene without client input.
     /// For display-only scenes (no choices, no freeform): applies scene-level
     /// mechanical effects and advances to the next scene.
@@ -619,6 +664,12 @@ impl CharacterBuilder {
             }
             if let Some(ref v) = eff.pronoun_hint {
                 acc.pronoun_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.jungian_hint {
+                acc.jungian_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.rpg_role_hint {
+                acc.rpg_role_hint = Some(v.clone());
             }
             // Collect the rich description text from each choice for backstory.
             // Skip pronoun-only choices — their description (e.g., "He.") is not
@@ -1168,13 +1219,10 @@ impl CharacterBuilder {
         // were populated from chargen hints, not left empty.
         WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
             .field("action", "abilities_resolved")
-            .field(
-                "count",
-                abilities.len() as i64,
-            )
+            .field("count", abilities.len() as i64)
             .field(
                 "names",
-                &abilities
+                abilities
                     .iter()
                     .map(|a| a.name.as_str())
                     .collect::<Vec<_>>()
@@ -1212,6 +1260,10 @@ impl CharacterBuilder {
             known_facts: vec![],
             affinities: vec![],
             is_friendly: true,
+            resolved_archetype: acc
+                .jungian_hint
+                .as_ref()
+                .and_then(|j| acc.rpg_role_hint.as_ref().map(|r| format!("{j}/{r}"))),
         };
 
         Ok(character)
@@ -1309,6 +1361,8 @@ impl CharacterBuilder {
                         rolled_stats: rolled_stats_payload,
                         choice: None,
                         character: None,
+                        action: None,
+                        target_step: None,
                     },
                     player_id: player_id.to_string(),
                 }
@@ -1329,6 +1383,8 @@ impl CharacterBuilder {
                     rolled_stats: None,
                     choice: None,
                     character: None,
+                    action: None,
+                    target_step: None,
                 },
                 player_id: player_id.to_string(),
             },

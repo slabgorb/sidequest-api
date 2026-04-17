@@ -57,6 +57,7 @@ fn make_character(
         known_facts,
         affinities: vec![],
         is_friendly: true,
+        resolved_archetype: None,
     }
 }
 

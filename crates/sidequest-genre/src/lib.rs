@@ -13,6 +13,8 @@
 
 #![warn(missing_docs)]
 
+/// Archetype resolution engine — base→genre→world inheritance chain.
+pub mod archetype_resolve;
 mod cache;
 mod error;
 mod genre_code;

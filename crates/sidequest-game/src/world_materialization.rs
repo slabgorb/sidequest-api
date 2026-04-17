@@ -479,6 +479,7 @@ impl WorldBuilder {
                 affinities: Vec::new(),
                 is_friendly: true,
                 known_facts: Vec::new(),
+                resolved_archetype: None,
             };
             snap.characters.push(character);
         } else {
@@ -607,6 +608,12 @@ impl WorldBuilder {
             distinguishing_features: Vec::new(),
             ocean: None,
             belief_state: BeliefState::default(),
+            resolution_tier: crate::npc::ResolutionTier::default(),
+            non_transactional_interactions: 0,
+            jungian_id: None,
+            rpg_role_id: None,
+            npc_role_id: None,
+            resolved_archetype: None,
         };
         snap.npcs.push(npc);
     }
@@ -677,6 +684,12 @@ impl WorldBuilder {
                 distinguishing_features: Vec::new(),
                 ocean: None,
                 belief_state: BeliefState::default(),
+                resolution_tier: crate::npc::ResolutionTier::default(),
+                non_transactional_interactions: 0,
+                jungian_id: None,
+                rpg_role_id: None,
+                npc_role_id: None,
+                resolved_archetype: None,
             };
             snap.npcs.push(npc);
         }

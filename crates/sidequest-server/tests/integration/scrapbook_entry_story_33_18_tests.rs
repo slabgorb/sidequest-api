@@ -277,16 +277,7 @@ fn build_extracts_world_facts_from_is_new_footnotes_only() {
 
 #[test]
 fn build_empty_footnotes_yields_empty_world_facts() {
-    let payload = build_scrapbook_entry(
-        1,
-        nbs("Void"),
-        None,
-        None,
-        None,
-        "Nothing.",
-        &[],
-        &[],
-    );
+    let payload = build_scrapbook_entry(1, nbs("Void"), None, None, None, "Nothing.", &[], &[]);
     assert!(payload.world_facts.is_empty());
 }
 
@@ -309,10 +300,16 @@ fn build_maps_npc_registry_entries_to_npc_refs() {
     assert_eq!(payload.npcs_present.len(), 2);
     assert_eq!(payload.npcs_present[0].name.as_str(), "Toggler Copperjaw");
     assert_eq!(payload.npcs_present[0].role.as_str(), "blacksmith");
-    assert_eq!(payload.npcs_present[0].disposition.as_str(), "gruff but fair");
+    assert_eq!(
+        payload.npcs_present[0].disposition.as_str(),
+        "gruff but fair"
+    );
     assert_eq!(payload.npcs_present[1].name.as_str(), "Vera Ashmark");
     assert_eq!(payload.npcs_present[1].role.as_str(), "guard captain");
-    assert_eq!(payload.npcs_present[1].disposition.as_str(), "watchful and quiet");
+    assert_eq!(
+        payload.npcs_present[1].disposition.as_str(),
+        "watchful and quiet"
+    );
 }
 
 #[test]
@@ -342,16 +339,7 @@ fn build_filters_npc_registry_by_current_turn_id() {
 
 #[test]
 fn build_empty_npc_registry_yields_empty_npcs_present() {
-    let payload = build_scrapbook_entry(
-        1,
-        nbs("Alone"),
-        None,
-        None,
-        None,
-        "Empty room.",
-        &[],
-        &[],
-    );
+    let payload = build_scrapbook_entry(1, nbs("Alone"), None, None, None, "Empty room.", &[], &[]);
     assert!(payload.npcs_present.is_empty());
 }
 
@@ -380,16 +368,7 @@ fn build_passes_scene_metadata_through() {
 
 #[test]
 fn build_with_all_nones_leaves_optional_fields_none() {
-    let payload = build_scrapbook_entry(
-        1,
-        nbs("Hollow"),
-        None,
-        None,
-        None,
-        "Quiet.",
-        &[],
-        &[],
-    );
+    let payload = build_scrapbook_entry(1, nbs("Hollow"), None, None, None, "Quiet.", &[], &[]);
     assert!(payload.scene_title.is_none());
     assert!(payload.scene_type.is_none());
     assert!(payload.image_url.is_none());

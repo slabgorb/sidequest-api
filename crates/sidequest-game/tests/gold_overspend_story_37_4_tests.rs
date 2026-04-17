@@ -78,7 +78,10 @@ fn spend_gold_from_zero_leaves_balance_at_zero() {
         gold: 0,
     };
     let _ = inv.spend_gold(5);
-    assert_eq!(inv.gold, 0, "zero balance must remain zero after failed spend");
+    assert_eq!(
+        inv.gold, 0,
+        "zero balance must remain zero after failed spend"
+    );
 }
 
 // ── Negative amount guard ────────────────────────────────────────────

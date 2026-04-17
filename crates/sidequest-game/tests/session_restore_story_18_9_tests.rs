@@ -71,6 +71,7 @@ fn rich_character() -> Character {
         known_facts: rich_known_facts(),
         affinities: vec![],
         is_friendly: true,
+        resolved_archetype: None,
     }
 }
 

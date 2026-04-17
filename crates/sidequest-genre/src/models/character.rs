@@ -184,6 +184,14 @@ pub struct MechanicalEffects {
     /// Equipment generation method (scene-level directive, e.g. "random_table").
     #[serde(default)]
     pub equipment_generation: Option<String>,
+    /// Jungian archetype axis hint (e.g. "sage", "hero", "caregiver").
+    /// Used by CharacterBuilder to accumulate axis values for archetype resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jungian_hint: Option<String>,
+    /// RPG role axis hint (e.g. "healer", "tank", "dps").
+    /// Used by CharacterBuilder to accumulate axis values for archetype resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rpg_role_hint: Option<String>,
 }
 
 // ═══════════════════════════════════════════════════════════

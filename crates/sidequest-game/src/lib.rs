@@ -138,7 +138,7 @@ pub use music_director::{
     MusicTelemetry,
 };
 pub use narrative::NarrativeEntry;
-pub use npc::{enrich_registry_from_npcs, Npc, NpcRegistryEntry};
+pub use npc::{enrich_registry_from_npcs, Npc, NpcRegistryEntry, ResolutionTier};
 pub use npc_actions::{available_actions, select_npc_action, NpcAction, ScenarioRole};
 pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
 pub use ocean_shift_proposals::{

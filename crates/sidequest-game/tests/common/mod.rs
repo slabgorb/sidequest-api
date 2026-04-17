@@ -33,5 +33,6 @@ pub fn make_character(name: &str) -> Character {
         known_facts: vec![],
         affinities: vec![],
         is_friendly: true,
+        resolved_archetype: None,
     }
 }

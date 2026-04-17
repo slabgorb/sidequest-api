@@ -1,5 +1,8 @@
 //! Top-level aggregates: GenrePack and World, plus pack metadata.
 
+use super::archetype_axes::BaseArchetypes;
+use super::archetype_constraints::ArchetypeConstraints;
+use super::archetype_funnels::ArchetypeFunnels;
 use super::*;
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
@@ -61,6 +64,12 @@ pub struct GenrePack {
     /// Random equipment tables from `equipment_tables.yaml` (optional per genre pack).
     /// Consumed by scenes with `equipment_generation: random_table`. Story 31-3.
     pub equipment_tables: Option<EquipmentTables>,
+    /// Base archetype definitions loaded from content root.
+    pub base_archetypes: Option<BaseArchetypes>,
+    /// Genre-level archetype constraints and flavor.
+    pub archetype_constraints: Option<ArchetypeConstraints>,
+    /// NPC traits database loaded from content root `npc_traits.yaml`.
+    pub npc_traits: Option<super::npc_traits::NpcTraitsDatabase>,
 }
 
 /// A world within a genre pack, assembled from `worlds/{slug}/`.
@@ -91,6 +100,8 @@ pub struct World {
     /// Portrait manifest — rich appearance descriptions for NPC portrait generation.
     /// Loaded from `portrait_manifest.yaml` if present.
     pub portrait_manifest: Vec<PortraitManifestEntry>,
+    /// World-level archetype funnels.
+    pub archetype_funnels: Option<ArchetypeFunnels>,
 }
 
 /// A character entry in a portrait manifest — provides rich visual descriptions
@@ -161,8 +172,11 @@ pub struct PackMeta {
 /// Recommended player count for a genre pack.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RecommendedPlayers {
+    /// Minimum number of players.
     pub min: u8,
+    /// Maximum number of players.
     pub max: u8,
+    /// Optimal player count, if defined.
     #[serde(default)]
     pub sweet_spot: Option<u8>,
 }

@@ -60,11 +60,34 @@ PART 2 — STATE PATCH\n\
 After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
-mood, state_snapshot, beat_selections, visual_scene, footnotes, gold_change.\n\
+mood, state_snapshot, beat_selections, visual_scene, footnotes, gold_change, \
+action_rewrite, action_flags.\n\
 gold_change: Integer. Emit when the player gains or loses gold/currency \
 outside of beat costs (e.g., winning a poker hand: +50, paying a bribe: -20, \
 finding a coin purse: +10). Beat costs are handled automatically — only emit \
 gold_change for narrator-determined outcomes.\n\
+\n\
+action_rewrite: Object. Include on every turn. If omitted, a default fallback \
+is substituted and a warning is logged. Rewrite the player's raw input into \
+three perspective forms for downstream systems:\n\
+  {\"you\": \"<second-person rewrite>\", \"named\": \"<third-person with character name>\", \
+\"intent\": \"<neutral distilled intent, no pronouns>\"}\n\
+Example: player says \"I draw my sword\" →\n\
+  {\"you\": \"You draw your sword\", \"named\": \"Kael draws their sword\", \
+\"intent\": \"draw sword\"}\n\
+\n\
+action_flags: Object. Include on every turn. If omitted, all flags default to \
+false and a warning is logged. Classify the player's action with boolean flags:\n\
+  {\"is_power_grab\": false, \"references_inventory\": false, \"references_npc\": false, \
+\"references_ability\": false, \"references_location\": false}\n\
+is_power_grab: true if the action attempts to seize extraordinary power OR \
+coerce an outcome through force or threat (e.g., \"I wish for godlike power\", \
+\"I'll kill them all if you don't comply\"). references_inventory: true if the action \
+mentions items, equipment, or gear. references_npc: true if the action addresses \
+or mentions an NPC by name or role. references_ability: true if the action invokes \
+a power, mutation, spell, or skill. references_location: true if the action \
+targets a location, attempts travel, or requests location-specific information — \
+not merely a passing geographic reference in dialogue.\n\
 \n\
 items_gained: Array. Emit when the player acquires, picks up, finds, loots, \
 receives, or is given a new item during this turn. Each entry:\n\
@@ -241,15 +264,16 @@ pub fn narrator_output_format_text() -> &'static str {
 /// guardrail (injected by the orchestrator per-session verbosity setting).
 /// Do NOT duplicate numeric limits here — the LLM averages conflicting numbers.
 const NARRATOR_OUTPUT_STYLE: &str = "\
-Respect the <length-limit> guardrail — it is the single source of truth for prose length.\n\
-- VARY your length by moment. Not every turn is the same size.
-- Arrivals and reveals: full scene — atmosphere, exits, points of interest.
-- Combat: kinetic and visceral. Short punchy sentences.
-- Dialogue: snappy, with voice and personality. Not embedded in description.
-- Simple movement or re-examination: shorter, focused.
-- End on a hook the player can react to. Not a prose flourish.
-- One action, one scene beat per turn. Don't narrate the player's inventory management.
-- First line: location header like **The Collapsed Overpass**
+The <length-limit> is a HARD CAP — never exceed it. It overrides genre voice, trope weaving, \
+and all other expansion pressure. When in doubt, cut.\n\
+- BREVITY IS KING. Every sentence must earn its place. Cut adjectives before cutting action.\n\
+- Simple actions (look, examine, wait): 2-3 sentences. No atmosphere.\n\
+- Arrivals: atmosphere + exits + 1-2 points of interest. Still under the cap.\n\
+- Combat: 2-4 sentences. Kinetic. Short.\n\
+- Dialogue: snappy. One exchange. No preamble.\n\
+- End on a hook the player can react to. Not a prose flourish.\n\
+- One action, one scene beat per turn.\n\
+- First line: location header like **The Collapsed Overpass**\n\
 - Blank line, then prose.";
 
 /// Referral Rule (Early/Guardrail zone — not in SOUL.md).

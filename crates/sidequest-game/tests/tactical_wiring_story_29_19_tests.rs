@@ -247,10 +247,16 @@ fn build_room_graph_explored_mixed_grid_and_gridless() {
         .unwrap();
     assert!(vault.tactical_grid.is_some(), "vault has a grid");
 
-    let passage = explored.iter().find(|e| e.name.as_str() == "Stone Passage").unwrap();
+    let passage = explored
+        .iter()
+        .find(|e| e.name.as_str() == "Stone Passage")
+        .unwrap();
     assert!(passage.tactical_grid.is_none(), "passage has no grid");
 
-    let tavern = explored.iter().find(|e| e.name.as_str() == "The Rusty Mug").unwrap();
+    let tavern = explored
+        .iter()
+        .find(|e| e.name.as_str() == "The Rusty Mug")
+        .unwrap();
     assert!(tavern.tactical_grid.is_none(), "tavern has no grid");
 }
 

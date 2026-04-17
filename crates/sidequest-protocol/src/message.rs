@@ -645,6 +645,15 @@ pub struct CharacterCreationPayload {
     /// Completed character data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character: Option<serde_json::Value>,
+    /// Navigation action from client: "back" (go to previous scene) or
+    /// "edit" (jump to a specific scene from the review screen).
+    /// When present, the server handles navigation instead of scene progression.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    /// Target scene index for "edit" action (0-based). The UI sends this
+    /// alongside `action: "edit"` from the review screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_step: Option<u32>,
 }
 
 /// One rolled ability score: ability name + value.

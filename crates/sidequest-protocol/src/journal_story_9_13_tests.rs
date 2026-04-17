@@ -92,7 +92,10 @@ fn journal_entry_has_all_fields() {
         learned_turn: 3,
     };
     assert_eq!(entry.fact_id.as_str(), "f1");
-    assert_eq!(entry.content.as_str(), "The grove's oldest tree radiates corruption");
+    assert_eq!(
+        entry.content.as_str(),
+        "The grove's oldest tree radiates corruption"
+    );
     assert_eq!(entry.category, FactCategory::Place);
     assert_eq!(entry.source, "Observation");
     assert_eq!(entry.confidence, "Certain");

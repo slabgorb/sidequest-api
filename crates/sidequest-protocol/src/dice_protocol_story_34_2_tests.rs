@@ -163,6 +163,7 @@ fn dice_throw_payload_carries_request_id_and_params() {
             position: [0.25, 0.75],
         },
         face: vec![17],
+        beat_id: None,
     };
     // Review fix #8: previously asserted velocity only; angular and position
     // were constructed with specific values but never checked. Every
@@ -275,6 +276,7 @@ fn dice_throw_serde_round_trip_preserves_every_field() {
                 position: [0.25, 0.75],
             },
             face: vec![14],
+            beat_id: None,
         },
         player_id: "kira".to_string(),
     };
@@ -470,6 +472,7 @@ fn dice_throw_serializes_with_dice_throw_type_tag() {
             request_id: "req-1".to_string(),
             throw_params: throw_params_zero(),
             face: vec![10],
+            beat_id: None,
         },
         player_id: "p1".to_string(),
     };
@@ -1042,6 +1045,7 @@ fn all_new_dice_public_types_reachable_via_crate_root() {
         request_id: "req-wire".to_string(),
         throw_params: throw_params_zero(),
         face: vec![17],
+        beat_id: None,
     };
     let _result_payload: DiceResultPayload = DiceResultPayload {
         request_id: "req-wire".to_string(),

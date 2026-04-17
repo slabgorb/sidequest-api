@@ -162,7 +162,7 @@ async fn client_face_12_below_dc_produces_fail_outcome() {
         request_id: "req-fail".to_string(),
         throw_params: sample_throw_params(),
         face: vec![12],
-    beat_id: None,
+        beat_id: None,
     };
 
     let result = extract_dice_result(handle_dice_throw(payload, "test-player", &holder, 1).await);
@@ -182,7 +182,7 @@ async fn client_face_nat20_produces_crit_success_regardless_of_dc() {
         request_id: "req-crit-success".to_string(),
         throw_params: sample_throw_params(),
         face: vec![20],
-    beat_id: None,
+        beat_id: None,
     };
 
     let result = extract_dice_result(handle_dice_throw(payload, "test-player", &holder, 1).await);
@@ -201,7 +201,7 @@ async fn client_face_nat1_produces_crit_fail_regardless_of_total() {
         request_id: "req-crit-fail".to_string(),
         throw_params: sample_throw_params(),
         face: vec![1],
-    beat_id: None,
+        beat_id: None,
     };
 
     let result = extract_dice_result(handle_dice_throw(payload, "test-player", &holder, 1).await);
@@ -220,7 +220,7 @@ async fn mixed_pool_faces_are_mapped_to_correct_die_groups() {
         request_id: "req-mixed".to_string(),
         throw_params: sample_throw_params(),
         face: vec![14, 3, 5],
-    beat_id: None,
+        beat_id: None,
     };
 
     let result = extract_dice_result(handle_dice_throw(payload, "test-player", &holder, 1).await);
@@ -254,7 +254,7 @@ async fn dice_result_is_broadcast_to_subscribers() {
         request_id: "req-broadcast".to_string(),
         throw_params: sample_throw_params(),
         face: vec![17],
-    beat_id: None,
+        beat_id: None,
     };
 
     let _ = handle_dice_throw(payload, "test-player", &holder, 1).await;
@@ -289,7 +289,7 @@ async fn outcome_is_persisted_to_pending_roll_outcome() {
         request_id: "req-persist".to_string(),
         throw_params: sample_throw_params(),
         face: vec![18],
-    beat_id: None,
+        beat_id: None,
     };
 
     let _ = handle_dice_throw(payload, "test-player", &holder, 1).await;
@@ -348,7 +348,7 @@ async fn second_throw_with_same_request_id_produces_error() {
         request_id: "req-once".to_string(),
         throw_params: sample_throw_params(),
         face: vec![19],
-    beat_id: None,
+        beat_id: None,
     };
     let err = extract_error(handle_dice_throw(second_payload, "test-player", &holder, 1).await);
     assert!(
@@ -372,7 +372,7 @@ async fn face_count_mismatch_returns_wire_error_and_does_not_broadcast() {
         request_id: "req-count-mismatch".to_string(),
         throw_params: sample_throw_params(),
         face: vec![10, 5],
-    beat_id: None,
+        beat_id: None,
     };
 
     let err = extract_error(handle_dice_throw(payload, "test-player", &holder, 1).await);
@@ -395,7 +395,7 @@ async fn face_out_of_range_returns_wire_error() {
         request_id: "req-out-of-range".to_string(),
         throw_params: sample_throw_params(),
         face: vec![21],
-    beat_id: None,
+        beat_id: None,
     };
 
     let err = extract_error(handle_dice_throw(payload, "test-player", &holder, 1).await);
@@ -414,7 +414,7 @@ async fn zero_face_returns_wire_error() {
         request_id: "req-zero-face".to_string(),
         throw_params: sample_throw_params(),
         face: vec![0],
-    beat_id: None,
+        beat_id: None,
     };
 
     let err = extract_error(handle_dice_throw(payload, "test-player", &holder, 1).await);

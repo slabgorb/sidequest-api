@@ -632,6 +632,9 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
         inventory: None,
         backstory_tables: None,
         equipment_tables: None,
+        base_archetypes: None,
+        archetype_constraints: None,
+        npc_traits: None,
     }
 }
 

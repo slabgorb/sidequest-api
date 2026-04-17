@@ -62,6 +62,12 @@ pub struct Character {
     /// Whether this is a player-controlled (friendly) character.
     #[serde(default = "default_friendly")]
     pub is_friendly: bool,
+
+    /// Resolved archetype name from the three-axis system (jungian/rpg_role).
+    /// Set during chargen when axis hints are available. Full resolution through
+    /// constraints and funnels happens in the dispatch layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_archetype: Option<String>,
 }
 
 fn default_friendly() -> bool {
@@ -175,6 +181,7 @@ mod tests {
             known_facts: vec![],
             affinities: vec![],
             is_friendly: true,
+            resolved_archetype: None,
         }
     }
 

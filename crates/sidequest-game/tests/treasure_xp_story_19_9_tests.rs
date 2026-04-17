@@ -121,6 +121,7 @@ fn test_character_with_affinities(affinities: Vec<AffinityState>) -> Character {
         known_facts: vec![],
         affinities,
         is_friendly: true,
+        resolved_archetype: None,
     }
 }
 
