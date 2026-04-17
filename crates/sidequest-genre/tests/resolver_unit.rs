@@ -95,3 +95,17 @@ fn append_strategy_handles_empty_base() {
     let out = apply_append(&base, &deeper);
     assert_eq!(out, vec!["only"]);
 }
+
+use sidequest_genre::resolver::ResolutionContext;
+
+#[test]
+fn resolution_context_identifies_chain() {
+    let ctx = ResolutionContext {
+        genre: "heavy_metal".into(),
+        world: Some("evropi".into()),
+        culture: Some("thornwall".into()),
+    };
+    assert_eq!(ctx.genre, "heavy_metal");
+    assert_eq!(ctx.world.as_deref(), Some("evropi"));
+    assert_eq!(ctx.culture.as_deref(), Some("thornwall"));
+}
