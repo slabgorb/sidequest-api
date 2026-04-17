@@ -24,9 +24,7 @@ use tracing::Subscriber;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Registry;
 
-use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, NarratorExtraction,
-};
+use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction};
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 
 // ============================================================================
@@ -466,8 +464,8 @@ fn dispatch_has_production_consumer_for_result_action_rewrite_or_flags() {
     //   - `"action_flags"`   (WatcherEvent field name string literal)
     let wires_via_field_access =
         code_only.contains(".action_rewrite") || code_only.contains(".action_flags");
-    let wires_via_watcher_event = code_only.contains("\"action_rewrite\"")
-        || code_only.contains("\"action_flags\"");
+    let wires_via_watcher_event =
+        code_only.contains("\"action_rewrite\"") || code_only.contains("\"action_flags\"");
 
     assert!(
         wires_via_field_access || wires_via_watcher_event,

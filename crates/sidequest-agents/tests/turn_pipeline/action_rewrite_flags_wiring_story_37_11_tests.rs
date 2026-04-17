@@ -1,7 +1,7 @@
 //! Story 37-11: action_rewrite and action_flags wiring
 //!
-//! RED phase — tests for re-adding narrator-emitted action_rewrite/action_flags
-//! to the game_patch schema and wiring them through dispatch.
+//! Tests for narrator-emitted action_rewrite/action_flags in the game_patch
+//! schema and their wiring through the assemble_turn merge path.
 //!
 //! Context: Story 20-1 moved action_rewrite/action_flags to mechanical preprocessors
 //! and stripped them from the narrator prompt. But the preprocessors use keyword matching
@@ -16,9 +16,7 @@
 
 use std::collections::HashMap;
 
-use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, NarratorExtraction,
-};
+use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction};
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 
 // ============================================================================
@@ -238,7 +236,9 @@ You ask the bartender about the strange noises from the cellar.
     let extraction = sidequest_agents::orchestrator::extract_structured_from_response(raw);
 
     // action_rewrite parsed
-    let rewrite = extraction.action_rewrite.expect("action_rewrite must parse");
+    let rewrite = extraction
+        .action_rewrite
+        .expect("action_rewrite must parse");
     assert_eq!(rewrite.intent, "ask bartender about cellar noises");
 
     // action_flags parsed
@@ -302,18 +302,23 @@ fn narrator_action_rewrite_flows_into_action_result() {
     };
     let flags = ActionFlags::default();
 
-    let result = assemble_turn(extraction, preprocessor_rewrite, flags, ToolCallResults::default());
+    let result = assemble_turn(
+        extraction,
+        preprocessor_rewrite,
+        flags,
+        ToolCallResults::default(),
+    );
 
-    let rewrite = result.action_rewrite.expect("action_rewrite must be present");
+    let rewrite = result
+        .action_rewrite
+        .expect("action_rewrite must be present");
     // The narrator's richer rewrite should be used
     assert_eq!(
-        rewrite.you,
-        "You carefully inspect the ancient runes",
+        rewrite.you, "You carefully inspect the ancient runes",
         "Narrator's action_rewrite.you should flow into ActionResult"
     );
     assert_eq!(
-        rewrite.named,
-        "Kael carefully inspects the ancient runes",
+        rewrite.named, "Kael carefully inspects the ancient runes",
         "Narrator's action_rewrite.named should flow into ActionResult"
     );
 }
@@ -327,7 +332,7 @@ fn narrator_action_flags_flows_into_action_result() {
     extraction.action_flags = Some(ActionFlags {
         is_power_grab: false,
         references_inventory: false,
-        references_npc: true,  // narrator correctly detects NPC reference
+        references_npc: true, // narrator correctly detects NPC reference
         references_ability: false,
         references_location: false,
     });
@@ -341,7 +346,7 @@ fn narrator_action_flags_flows_into_action_result() {
     let preprocessor_flags = ActionFlags {
         is_power_grab: false,
         references_inventory: false,
-        references_npc: false,  // keyword matcher missed it
+        references_npc: false, // keyword matcher missed it
         references_ability: false,
         references_location: false,
     };
@@ -387,7 +392,9 @@ fn preprocessor_fallback_when_narrator_omits_fields() {
         ToolCallResults::default(),
     );
 
-    let rewrite = result.action_rewrite.expect("action_rewrite must be present");
+    let rewrite = result
+        .action_rewrite
+        .expect("action_rewrite must be present");
     assert_eq!(
         rewrite.you, "You look around",
         "Preprocessor fallback must be used when narrator omits action_rewrite"
