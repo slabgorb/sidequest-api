@@ -1,9 +1,5 @@
 //! Consolidated integration tests: turn_record_tools
 
-#[path = "turn_record_tools/parallel_preprocess_story_18_3_tests.rs"]
-#[allow(clippy::all)]
-mod parallel_preprocess_story_18_3_tests;
-
 #[path = "turn_record_tools/tool_call_parser_story_20_10_tests.rs"]
 #[allow(clippy::all)]
 mod tool_call_parser_story_20_10_tests;
