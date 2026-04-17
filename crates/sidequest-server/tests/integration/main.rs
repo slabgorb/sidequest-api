@@ -55,4 +55,5 @@ mod two_phase_dice_wiring_tests;
 mod watcher_story_3_6_tests;
 mod sealed_letter_resolution_story_38_5_tests;
 mod narrator_cockpit_pov_story_38_6_tests;
+mod extend_return_story_38_8_tests;
 mod world_materialization_wiring_story_15_18_tests;

@@ -165,6 +165,12 @@ pub fn resolve_sealed_letter_lookup(
             .send();
     }
 
+    // Extend-and-return rule (Story 38-8):
+    // After resolution, if no hit landed AND at least one actor has
+    // closure: opening_fast, the engagement has broken apart. Reset both
+    // actors' geometric fields to merge starting state, preserving energy.
+    maybe_apply_extend_and_return(encounter);
+
     Ok(SealedLetterOutcome {
         cell_name,
         red_maneuver,
@@ -269,4 +275,75 @@ fn yaml_value_to_json(value: &serde_yaml::Value) -> serde_json::Value {
         }
         serde_yaml::Value::Tagged(tagged) => yaml_value_to_json(&tagged.value),
     }
+}
+
+/// Apply the extend-and-return rule (Story 38-8).
+///
+/// After a sealed-letter turn resolves, check:
+/// 1. Did any actor score a hit? (`gun_solution: true` in resolved state)
+/// 2. Does at least one actor have `closure: opening_fast`?
+///
+/// If no hit AND opening_fast → reset both actors' geometric descriptor
+/// fields to the merge starting state. Energy is preserved.
+fn maybe_apply_extend_and_return(encounter: &mut StructuredEncounter) {
+    // Check condition 1: did any actor score a hit?
+    let any_hit = encounter.actors.iter().any(|a| {
+        a.per_actor_state
+            .get("gun_solution")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    });
+
+    if any_hit {
+        return; // Hit landed — no reset.
+    }
+
+    // Check condition 2: does any actor have opening_fast closure?
+    let any_opening_fast = encounter.actors.iter().any(|a| {
+        a.per_actor_state
+            .get("closure")
+            .and_then(|v| v.as_str())
+            == Some("opening_fast")
+    });
+
+    if !any_opening_fast {
+        return; // No opening_fast — engagement hasn't broken apart.
+    }
+
+    // Both conditions met: reset geometric fields to merge starting state.
+    // Merge starting state from descriptor_schema.yaml:
+    //   target_bearing: "12", target_range: close, target_aspect: head_on,
+    //   closure: closing_fast, gun_solution: false
+    // Energy (viewer_energy, target_energy) is preserved.
+    for actor in &mut encounter.actors {
+        actor.per_actor_state.insert(
+            "target_bearing".to_string(),
+            serde_json::Value::String("12".to_string()),
+        );
+        actor.per_actor_state.insert(
+            "target_range".to_string(),
+            serde_json::Value::String("close".to_string()),
+        );
+        actor.per_actor_state.insert(
+            "target_aspect".to_string(),
+            serde_json::Value::String("head_on".to_string()),
+        );
+        actor.per_actor_state.insert(
+            "closure".to_string(),
+            serde_json::Value::String("closing_fast".to_string()),
+        );
+        actor
+            .per_actor_state
+            .insert("gun_solution".to_string(), serde_json::Value::Bool(false));
+    }
+
+    // OTEL: extend-and-return fired — the GM panel must see this.
+    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+        .field("event", "encounter.sealed_letter.extend_and_return")
+        .field("encounter_type", &encounter.encounter_type)
+        .send();
+    tracing::info!(
+        encounter_type = %encounter.encounter_type,
+        "encounter.sealed_letter.extend_and_return — engagement reset to merge"
+    );
 }
