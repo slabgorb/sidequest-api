@@ -28,6 +28,7 @@ pub mod names;
 mod resolve;
 /// Four-tier content resolver: Global → Genre → World → Culture provenance tracking.
 pub mod resolver;
+pub use resolver::*;
 mod util;
 mod validate;
 
