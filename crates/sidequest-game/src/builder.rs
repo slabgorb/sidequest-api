@@ -1222,7 +1222,7 @@ impl CharacterBuilder {
             .field("count", abilities.len() as i64)
             .field(
                 "names",
-                &abilities
+                abilities
                     .iter()
                     .map(|a| a.name.as_str())
                     .collect::<Vec<_>>()

@@ -551,6 +551,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 reason: mutation.detail.clone(),
                             },
                             MutationAction::Acquired => unreachable!(),
+                            // `MutationAction` is `#[non_exhaustive]` — future
+                            // variants hit this arm and we fail loudly rather
+                            // than silently drop a mutation.
+                            _ => unreachable!(
+                                "unhandled MutationAction variant for item '{}'; extend match with explicit arm",
+                                mutation.item_name
+                            ),
                         };
                         match ctx.inventory.transition(&item_id, new_state) {
                             Ok(old_state) => {
@@ -1915,7 +1922,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     );
                     WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
                         .field("event", "encounter.sealed_letter.resolution_failed")
-                        .field("error", format!("{e}"))
+                        .field("error", e.to_string())
                         .field("encounter_type", &encounter_type)
                         .severity(Severity::Warn)
                         .send();

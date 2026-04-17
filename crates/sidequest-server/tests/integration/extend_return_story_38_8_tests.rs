@@ -29,17 +29,17 @@ use std::collections::HashMap;
 /// Interaction table with cells that exercise extend-and-return conditions:
 ///
 /// - `[bank, kill_rotation]` → evasive slips. Red: closure=opening, no shot.
-///    Blue: closure=opening_fast, no shot. → TRIGGERS extend-and-return
-///    (opening_fast + no hit)
+///   Blue: closure=opening_fast, no shot. → TRIGGERS extend-and-return
+///   (opening_fast + no hit)
 ///
 /// - `[straight, straight]` → clean merge. Both: closure=opening, no shot.
-///    → Does NOT trigger (opening, not opening_fast)
+///   → Does NOT trigger (opening, not opening_fast)
 ///
 /// - `[loop, straight]` → offense scores. Red: gun_solution=true,
-///    closure=opening. → Does NOT trigger (hit landed)
+///   closure=opening. → Does NOT trigger (hit landed)
 ///
 /// - `[kill_rotation, kill_rotation]` → mutual knife fight. Both:
-///    gun_solution=true, closure=stable. → Does NOT trigger (hits landed)
+///   gun_solution=true, closure=stable. → Does NOT trigger (hits landed)
 fn extend_return_table_yaml() -> &'static str {
     r#"
 version: "0.1.0"

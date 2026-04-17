@@ -696,17 +696,26 @@ pub enum PersistenceCommand {
     },
     /// Append a scrapbook entry.
     AppendScrapbookEntry {
+        /// Genre slug for the session.
         genre_slug: String,
+        /// World slug for the session.
         world_slug: String,
+        /// Player name for session isolation.
         player_name: String,
+        /// Scrapbook entry payload to append.
         entry: sidequest_protocol::ScrapbookEntryPayload,
+        /// Reply channel.
         reply: oneshot::Sender<Result<(), PersistError>>,
     },
     /// Load all scrapbook entries.
     LoadScrapbookEntries {
+        /// Genre slug for the session.
         genre_slug: String,
+        /// World slug for the session.
         world_slug: String,
+        /// Player name for session isolation.
         player_name: String,
+        /// Reply channel carrying the loaded entries or a persistence error.
         reply:
             oneshot::Sender<Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError>>,
     },

@@ -115,6 +115,12 @@ fn test_npc() -> Npc {
         distinguishing_features: vec![],
         ocean: None,
         belief_state: sidequest_game::belief_state::BeliefState::default(),
+        resolution_tier: sidequest_game::npc::ResolutionTier::default(),
+        non_transactional_interactions: 0,
+        jungian_id: None,
+        rpg_role_id: None,
+        npc_role_id: None,
+        resolved_archetype: None,
     }
 }
 

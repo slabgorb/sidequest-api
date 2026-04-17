@@ -205,6 +205,15 @@ fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<
 // AC-1: Match arm dispatch for SealedLetterLookup
 // ═══════════════════════════════════════════════════════════
 
+/// Function-pointer signature of the sealed-letter resolution handler.
+/// Factored out so `clippy::type_complexity` doesn't fire on the inline
+/// `let _fn_ref: fn(...) -> Result<...>` annotation below.
+type SealedLetterResolver = fn(
+    &mut StructuredEncounter,
+    &HashMap<String, String>,
+    &InteractionTable,
+) -> Result<SealedLetterOutcome, String>;
+
 /// The resolution handler must be publicly importable. This test's compile
 /// success IS the assertion — if `resolve_sealed_letter_lookup` and
 /// `SealedLetterOutcome` aren't exported, the entire test binary fails to
@@ -214,12 +223,9 @@ fn public_api_reachability() {
     // The import at the top of this file is the test. If we reach here,
     // the symbols are publicly reachable.
     let _ = std::any::type_name::<SealedLetterOutcome>();
-    // Verify the function exists by taking a reference to it.
-    let _fn_ref: fn(
-        &mut StructuredEncounter,
-        &HashMap<String, String>,
-        &InteractionTable,
-    ) -> Result<SealedLetterOutcome, String> = resolve_sealed_letter_lookup;
+    // Verify the function exists by taking a reference to it with the
+    // expected signature.
+    let _fn_ref: SealedLetterResolver = resolve_sealed_letter_lookup;
 }
 
 // ═══════════════════════════════════════════════════════════
