@@ -1,3 +1,4 @@
+use sidequest_genre::schema::culture::CultureContent;
 use sidequest_genre::schema::genre::GenreContent;
 use sidequest_genre::schema::global::GlobalContent;
 use sidequest_genre::schema::world::WorldContent;
@@ -76,4 +77,33 @@ valid_pairings: {}
     let result: Result<WorldContent, _> = serde_yaml::from_str(yaml);
     let err = result.unwrap_err().to_string();
     assert!(err.contains("valid_pairings"), "expected error naming 'valid_pairings', got: {err}");
+}
+
+#[test]
+fn culture_content_parses_reskins() {
+    let yaml = r#"
+id: thornwall
+display_name: Thornwall
+represents: faction
+reskins:
+  "Thornwall Mender":
+    display_name: "Thornwall Mender"
+    speech_pattern: "archaic Germanic cadence"
+"#;
+    let parsed: CultureContent = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(parsed.id, "thornwall");
+    assert_eq!(parsed.reskins.len(), 1);
+}
+
+#[test]
+fn culture_content_rejects_funnels() {
+    let yaml = r#"
+id: thornwall
+display_name: Thornwall
+represents: faction
+funnels: []
+"#;
+    let result: Result<CultureContent, _> = serde_yaml::from_str(yaml);
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("funnels"), "expected error naming 'funnels', got: {err}");
 }
