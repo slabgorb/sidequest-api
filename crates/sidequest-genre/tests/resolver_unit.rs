@@ -1,3 +1,4 @@
+use sidequest_genre::resolver::merge::{apply_strategy, MergeStrategy};
 use sidequest_genre::resolver::{ContributionKind, MergeStep, Provenance, Span, Tier};
 use std::path::PathBuf;
 
@@ -65,3 +66,16 @@ fn provenance_round_trips_through_json() {
     let back: Provenance = serde_json::from_str(&json).unwrap();
     assert_eq!(prov, back);
 }
+
+#[test]
+fn replace_strategy_returns_deeper() {
+    let out = apply_strategy(MergeStrategy::Replace, Some("base"), Some("deeper"));
+    assert_eq!(out, Some("deeper"));
+}
+
+#[test]
+fn replace_strategy_keeps_base_when_deeper_absent() {
+    let out = apply_strategy(MergeStrategy::Replace, Some("base"), None::<&str>);
+    assert_eq!(out, Some("base"));
+}
+
