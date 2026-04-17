@@ -33,7 +33,8 @@ use std::path::PathBuf;
 /// Path to the real `space_opera` dogfight interaction table.
 fn dogfight_interactions_path() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../../sidequest-content/genre_packs/space_opera/dogfight/interactions_mvp.yaml")
+    manifest
+        .join("../../../sidequest-content/genre_packs/space_opera/dogfight/interactions_mvp.yaml")
 }
 
 /// The three valid hit severity tiers from the paper playtest vocabulary.
@@ -396,7 +397,6 @@ fn sealed_letter_outcome_includes_hit_severity_and_damage() {
     // OTEL) can reference them. This tests that the struct has the fields
     // and that they are populated from cell + damage_increments.
     use sidequest_genre::load_genre_pack;
-    use std::collections::HashMap;
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let space_opera = manifest.join("../../../sidequest-content/genre_packs/space_opera");
@@ -423,8 +423,8 @@ fn sealed_letter_outcome_includes_hit_severity_and_damage() {
 
     // Blue has gun_solution in this cell — verify hit_severity is present
     // and that damage_increments maps it to a concrete value.
-    let blue_severity = get_hit_severity(&cell.blue_view)
-        .expect("straight vs loop: blue must have hit_severity");
+    let blue_severity =
+        get_hit_severity(&cell.blue_view).expect("straight vs loop: blue must have hit_severity");
     assert!(
         VALID_SEVERITIES.contains(&blue_severity.as_str()),
         "blue hit_severity must be valid"

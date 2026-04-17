@@ -1,9 +1,9 @@
 //! Top-level aggregates: GenrePack and World, plus pack metadata.
 
-use super::*;
 use super::archetype_axes::BaseArchetypes;
 use super::archetype_constraints::ArchetypeConstraints;
 use super::archetype_funnels::ArchetypeFunnels;
+use super::*;
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
@@ -172,8 +172,11 @@ pub struct PackMeta {
 /// Recommended player count for a genre pack.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RecommendedPlayers {
+    /// Minimum number of players.
     pub min: u8,
+    /// Maximum number of players.
     pub max: u8,
+    /// Optimal player count, if defined.
     #[serde(default)]
     pub sweet_spot: Option<u8>,
 }

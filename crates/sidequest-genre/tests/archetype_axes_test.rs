@@ -148,10 +148,7 @@ fn test_pairing_weight_lookup() {
         constraints.pairing_weight("innocent", "stealth"),
         Some(PairingWeight::Forbidden)
     );
-    assert_eq!(
-        constraints.pairing_weight("hero", "healer"),
-        None
-    );
+    assert_eq!(constraints.pairing_weight("hero", "healer"), None);
 }
 
 #[test]
@@ -180,7 +177,10 @@ fn test_deserialize_funnel() {
     assert_eq!(funnels.funnels.len(), 2);
     assert_eq!(funnels.funnels[0].absorbs.len(), 2);
     assert_eq!(
-        funnels.funnels[0].disposition_toward.get("Iron Guard").unwrap(),
+        funnels.funnels[0]
+            .disposition_toward
+            .get("Iron Guard")
+            .unwrap(),
         "cautious"
     );
 }
