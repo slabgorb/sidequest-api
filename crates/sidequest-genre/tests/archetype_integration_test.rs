@@ -9,7 +9,10 @@ fn test_load_low_fantasy_with_constraints() {
 
     // Skip if content repo not available
     if !content_path.exists() {
-        eprintln!("Skipping: sidequest-content not found at {:?}", content_path);
+        eprintln!(
+            "Skipping: sidequest-content not found at {:?}",
+            content_path
+        );
         return;
     }
 
@@ -44,10 +47,7 @@ fn test_load_low_fantasy_with_constraints() {
         assert!(mender.is_some(), "sage+healer should resolve to a funnel");
         // Check that the name is a lore-grounded name (not "Hedge Healer")
         let name = &mender.unwrap().name;
-        assert!(
-            !name.is_empty(),
-            "Resolved funnel should have a name"
-        );
+        assert!(!name.is_empty(), "Resolved funnel should have a name");
     }
 }
 
@@ -101,7 +101,11 @@ fn test_full_resolution_chain() {
         let funnels = world.archetype_funnels.as_ref();
 
         let result = sidequest_genre::archetype_resolve::resolve_archetype(
-            "sage", "healer", base, constraints, funnels,
+            "sage",
+            "healer",
+            base,
+            constraints,
+            funnels,
         );
         assert!(result.is_ok(), "sage+healer should resolve");
         let resolved = result.unwrap();
@@ -114,11 +118,18 @@ fn test_full_resolution_chain() {
 
     // Test genre fallback (no funnels)
     let result = sidequest_genre::archetype_resolve::resolve_archetype(
-        "hero", "tank", base, constraints, None,
+        "hero",
+        "tank",
+        base,
+        constraints,
+        None,
     );
     assert!(result.is_ok());
     let resolved = result.unwrap();
-    assert_eq!(resolved.name, "Shield-Bearer", "Should fall back to genre name");
+    assert_eq!(
+        resolved.name, "Shield-Bearer",
+        "Should fall back to genre name"
+    );
     assert_eq!(
         resolved.resolution_source,
         sidequest_genre::archetype_resolve::ResolutionSource::GenreFallback,
@@ -126,7 +137,11 @@ fn test_full_resolution_chain() {
 
     // Test forbidden pairing
     let result = sidequest_genre::archetype_resolve::resolve_archetype(
-        "innocent", "stealth", base, constraints, None,
+        "innocent",
+        "stealth",
+        base,
+        constraints,
+        None,
     );
     assert!(result.is_err(), "innocent+stealth should be forbidden");
 }

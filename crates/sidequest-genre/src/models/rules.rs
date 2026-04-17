@@ -353,6 +353,12 @@ struct RawInteractionTable {
     #[serde(default)]
     maneuvers_consumed: Vec<String>,
     cells: Vec<InteractionCell>,
+    /// Hull damage per hit severity tier (story 38-7).
+    #[serde(default)]
+    damage_increments: Option<HashMap<String, i64>>,
+    /// Starting hull pool for damage math (story 38-7).
+    #[serde(default)]
+    starting_hull: Option<i64>,
 }
 
 /// A sealed-letter interaction table — cross-product lookup between two
@@ -360,7 +366,9 @@ struct RawInteractionTable {
 /// and a narration hint.
 ///
 /// Validated on deserialization: version must not be empty, cells must not
-/// be empty, and every `(red, blue)` pair must be unique.
+/// be empty, and every `(red, blue)` pair must be unique. If `damage_increments`
+/// is present, all three severity tiers must be defined with positive, ordered
+/// values (story 38-7).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "RawInteractionTable")]
 pub struct InteractionTable {
@@ -372,6 +380,10 @@ pub struct InteractionTable {
     pub maneuvers_consumed: Vec<String>,
     /// Cells in the cross-product lookup.
     pub cells: Vec<InteractionCell>,
+    /// Hull damage per hit severity tier: graze, clean, devastating (story 38-7).
+    pub damage_increments: Option<HashMap<String, i64>>,
+    /// Starting hull pool value for damage math (story 38-7).
+    pub starting_hull: Option<i64>,
 }
 
 impl TryFrom<RawInteractionTable> for InteractionTable {
@@ -394,11 +406,35 @@ impl TryFrom<RawInteractionTable> for InteractionTable {
                 ));
             }
         }
+
+        // Validate damage_increments if present (story 38-7).
+        if let Some(ref increments) = raw.damage_increments {
+            for tier in &["graze", "clean", "devastating"] {
+                match increments.get(*tier) {
+                    None => {
+                        return Err(format!(
+                            "damage_increments missing required severity tier: '{}'",
+                            tier
+                        ));
+                    }
+                    Some(&val) if val <= 0 => {
+                        return Err(format!(
+                            "damage_increments '{}' must be positive, got {}",
+                            tier, val
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         Ok(Self {
             version: raw.version,
             starting_state: raw.starting_state,
             maneuvers_consumed: raw.maneuvers_consumed,
             cells: raw.cells,
+            damage_increments: raw.damage_increments,
+            starting_hull: raw.starting_hull,
         })
     }
 }
