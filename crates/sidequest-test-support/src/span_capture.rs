@@ -4,7 +4,7 @@
 //! the returned [`SpanCapture`] handle after the code under test has run.
 //! Tests assert on typed field values, not stringified log output.
 //!
-//! ```no_run
+//! ```
 //! use sidequest_test_support::SpanCaptureLayer;
 //! use tracing::subscriber::with_default;
 //! use tracing_subscriber::layer::SubscriberExt;

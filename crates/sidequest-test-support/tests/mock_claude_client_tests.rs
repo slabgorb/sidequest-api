@@ -51,7 +51,13 @@ fn unscripted_call_returns_error_not_default() {
 }
 
 #[test]
-fn scripted_response_round_trips_text_and_tokens() {
+fn scripted_response_round_trips_text() {
+    // Tokens are not covered here — `respond_with(text)` hardcodes
+    // `input_tokens: None` and `output_tokens: None` on the scripted
+    // `ClaudeResponse`. When token-accounting assertions are needed, add a
+    // `respond_with_tokens(text, input, output)` builder on `MockClaudeClient`
+    // and a dedicated test — do not let the name of this test mislead future
+    // authors into thinking tokens are pinned here.
     let mut mock = MockClaudeClient::new();
     mock.respond_with("the quick brown fox");
 
@@ -60,6 +66,16 @@ fn scripted_response_round_trips_text_and_tokens() {
         .expect("scripted response should succeed");
 
     assert_eq!(response.text, "the quick brown fox");
+    assert_eq!(
+        response.input_tokens, None,
+        "respond_with() must default input_tokens to None; change both this assertion \
+         and the mock's API when a respond_with_tokens variant is added"
+    );
+    assert_eq!(
+        response.output_tokens, None,
+        "respond_with() must default output_tokens to None; change both this assertion \
+         and the mock's API when a respond_with_tokens variant is added"
+    );
 }
 
 #[test]
@@ -133,8 +149,14 @@ fn records_session_call_with_non_empty_tools_and_env() {
     mock.respond_with("session response");
 
     let mut env = std::collections::HashMap::new();
-    env.insert("SIDEQUEST_GENRE".to_string(), "caverns_and_claudes".to_string());
-    env.insert("SIDEQUEST_CONTENT_PATH".to_string(), "/tmp/content".to_string());
+    env.insert(
+        "SIDEQUEST_GENRE".to_string(),
+        "caverns_and_claudes".to_string(),
+    );
+    env.insert(
+        "SIDEQUEST_CONTENT_PATH".to_string(),
+        "/tmp/content".to_string(),
+    );
     let tools = vec!["Read".to_string(), "Bash".to_string()];
 
     let _ = mock.send_with_session(
@@ -160,7 +182,9 @@ fn records_session_call_with_non_empty_tools_and_env() {
         Some("caverns_and_claudes")
     );
     assert_eq!(
-        call.env_vars().get("SIDEQUEST_CONTENT_PATH").map(String::as_str),
+        call.env_vars()
+            .get("SIDEQUEST_CONTENT_PATH")
+            .map(String::as_str),
         Some("/tmp/content")
     );
 }

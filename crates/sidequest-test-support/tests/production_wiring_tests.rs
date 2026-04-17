@@ -79,8 +79,14 @@ fn preprocessor_accepts_arc_dyn_claude_like() {
         action.references_ability,
         "references_ability must round-trip through the preprocessor"
     );
-    assert!(!action.is_power_grab, "is_power_grab must round-trip as false");
-    assert!(!action.references_npc, "references_npc must round-trip as false");
+    assert!(
+        !action.is_power_grab,
+        "is_power_grab must round-trip as false"
+    );
+    assert!(
+        !action.references_npc,
+        "references_npc must round-trip as false"
+    );
     assert!(
         !action.references_location,
         "references_location must round-trip as false"
@@ -174,12 +180,91 @@ fn preprocessor_records_prompt_through_mock() {
         "haiku",
         "preprocessor must use haiku tier (HAIKU_MODEL constant in preprocessor.rs)"
     );
+    // Pin the exact template slots — not just any occurrence of "Rux" (which
+    // also appears in the JSON example line `{char_name} draws their sword`)
+    // or "i look around" (which doesn't appear elsewhere but would if the
+    // template grew more examples). Epic 40's whole mission is eliminating
+    // loose substring matching; this foundation test must not regress that.
+    let prompt = recorded[0].prompt();
     assert!(
-        recorded[0].prompt().contains("Rux"),
-        "the prompt must carry the character name through to the injected client"
+        prompt.contains("Character name: Rux"),
+        "prompt must inject char_name into the `Character name:` slot; got: {prompt}"
     );
     assert!(
-        recorded[0].prompt().contains("i look around"),
-        "the prompt must carry the raw input through to the injected client"
+        prompt.contains("Player input: \"i look around, you know?\""),
+        "prompt must inject raw_input into the `Player input:` slot verbatim; got: {prompt}"
     );
+}
+
+/// A non-JSON scripted response must propagate as
+/// `PreprocessError::ParseFailed(response)` — the malformed text is carried
+/// through for debugging, and no variant is silently swallowed.
+#[test]
+fn preprocessor_propagates_parse_failure() {
+    let mut mock = MockClaudeClient::new();
+    mock.respond_with("not json at all");
+    let client: Arc<dyn ClaudeLike> = Arc::new(mock);
+
+    let result =
+        sidequest_agents::preprocessor::preprocess_action_with_client(client, "some input", "Rux");
+
+    match result {
+        Err(PreprocessError::ParseFailed(text)) => {
+            assert_eq!(
+                text, "not json at all",
+                "ParseFailed must carry the malformed response text verbatim so GM-panel \
+                 debugging can see what Haiku actually returned"
+            );
+        }
+        other => panic!("expected Err(PreprocessError::ParseFailed(_)), got {other:?}"),
+    }
+}
+
+/// A scripted JSON response whose rewrite fields exceed 2x the raw input
+/// length must propagate as `PreprocessError::OutputTooLong { .. }` — a
+/// hallucinated or runaway expansion must not reach the dispatch layer as
+/// `Ok(PreprocessedAction)`. The struct fields must carry actual lengths so
+/// the GM panel can see which field blew the budget.
+#[test]
+fn preprocessor_propagates_output_too_long() {
+    // raw = 6 chars; 2x budget = 12 chars. "you" field at 54 chars must
+    // exceed the budget.
+    let raw = "i draw";
+    let long_you = "you draw your sword and swing it wildly for a long time";
+    assert!(
+        long_you.len() > raw.len() * 2,
+        "test data must exceed 2x budget"
+    );
+
+    let json = format!(r#"{{"you":"{long_you}","named":"Rux","intent":"x"}}"#);
+    let mut mock = MockClaudeClient::new();
+    mock.respond_with(json);
+    let client: Arc<dyn ClaudeLike> = Arc::new(mock);
+
+    let result = sidequest_agents::preprocessor::preprocess_action_with_client(client, raw, "Rux");
+
+    match result {
+        Err(PreprocessError::OutputTooLong {
+            raw_len,
+            you_len,
+            named_len,
+            intent_len,
+        }) => {
+            assert_eq!(raw_len, raw.len(), "raw_len must equal input length");
+            assert_eq!(
+                you_len,
+                long_you.len(),
+                "you_len must equal the over-budget field length"
+            );
+            assert_eq!(
+                named_len, 3,
+                "named_len must equal the actual response field length"
+            );
+            assert_eq!(
+                intent_len, 1,
+                "intent_len must equal the actual response field length"
+            );
+        }
+        other => panic!("expected Err(PreprocessError::OutputTooLong {{ .. }}), got {other:?}"),
+    }
 }
