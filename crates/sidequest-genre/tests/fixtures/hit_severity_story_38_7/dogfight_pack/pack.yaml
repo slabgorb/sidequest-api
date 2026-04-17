@@ -1,0 +1,4 @@
+name: Dogfight Test Pack
+version: "0.1.0"
+description: "Minimal fixture pack for hit_severity wiring test — has dogfight confrontation with SealedLetterLookup"
+min_sidequest_version: "0.1.0"

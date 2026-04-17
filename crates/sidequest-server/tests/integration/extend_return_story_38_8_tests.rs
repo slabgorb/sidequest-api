@@ -167,8 +167,7 @@ fn committed(red: &str, blue: &str) -> HashMap<String, String> {
 }
 
 fn parse_table() -> InteractionTable {
-    serde_yaml::from_str(extend_return_table_yaml())
-        .expect("test fixture must parse")
+    serde_yaml::from_str(extend_return_table_yaml()).expect("test fixture must parse")
 }
 
 /// Helper to read a string field from an actor's per_actor_state.
@@ -368,18 +367,48 @@ fn extend_return_resets_all_geometric_fields() {
         .expect("resolution must succeed");
 
     // Red geometric fields must all be merge starting state.
-    assert_eq!(actor_state_str(&encounter, "red", "target_bearing").as_deref(), Some(MERGE_BEARING));
-    assert_eq!(actor_state_str(&encounter, "red", "target_range").as_deref(), Some(MERGE_RANGE));
-    assert_eq!(actor_state_str(&encounter, "red", "target_aspect").as_deref(), Some(MERGE_ASPECT));
-    assert_eq!(actor_state_str(&encounter, "red", "closure").as_deref(), Some(MERGE_CLOSURE));
-    assert_eq!(actor_state_bool(&encounter, "red", "gun_solution"), Some(false));
+    assert_eq!(
+        actor_state_str(&encounter, "red", "target_bearing").as_deref(),
+        Some(MERGE_BEARING)
+    );
+    assert_eq!(
+        actor_state_str(&encounter, "red", "target_range").as_deref(),
+        Some(MERGE_RANGE)
+    );
+    assert_eq!(
+        actor_state_str(&encounter, "red", "target_aspect").as_deref(),
+        Some(MERGE_ASPECT)
+    );
+    assert_eq!(
+        actor_state_str(&encounter, "red", "closure").as_deref(),
+        Some(MERGE_CLOSURE)
+    );
+    assert_eq!(
+        actor_state_bool(&encounter, "red", "gun_solution"),
+        Some(false)
+    );
 
     // Blue geometric fields must all be merge starting state.
-    assert_eq!(actor_state_str(&encounter, "blue", "target_bearing").as_deref(), Some(MERGE_BEARING));
-    assert_eq!(actor_state_str(&encounter, "blue", "target_range").as_deref(), Some(MERGE_RANGE));
-    assert_eq!(actor_state_str(&encounter, "blue", "target_aspect").as_deref(), Some(MERGE_ASPECT));
-    assert_eq!(actor_state_str(&encounter, "blue", "closure").as_deref(), Some(MERGE_CLOSURE));
-    assert_eq!(actor_state_bool(&encounter, "blue", "gun_solution"), Some(false));
+    assert_eq!(
+        actor_state_str(&encounter, "blue", "target_bearing").as_deref(),
+        Some(MERGE_BEARING)
+    );
+    assert_eq!(
+        actor_state_str(&encounter, "blue", "target_range").as_deref(),
+        Some(MERGE_RANGE)
+    );
+    assert_eq!(
+        actor_state_str(&encounter, "blue", "target_aspect").as_deref(),
+        Some(MERGE_ASPECT)
+    );
+    assert_eq!(
+        actor_state_str(&encounter, "blue", "closure").as_deref(),
+        Some(MERGE_CLOSURE)
+    );
+    assert_eq!(
+        actor_state_bool(&encounter, "blue", "gun_solution"),
+        Some(false)
+    );
 }
 
 // ═══════════════════════════════════════════════════════════

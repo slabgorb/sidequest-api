@@ -1,0 +1,12 @@
+world_name: Test World
+starting_region: heartland
+regions:
+  heartland:
+    name: The Heartland
+    summary: "Fertile central plains and crossroads of commerce"
+    description: "Fertile central plains dotted with farming villages and market towns."
+  bordermarsh:
+    name: The Bordermarsh
+    summary: "Boggy frontier wetlands with scattered holdings"
+    description: "Boggy frontier territory with scattered holds and reed-roofed cottages."
+routes: []

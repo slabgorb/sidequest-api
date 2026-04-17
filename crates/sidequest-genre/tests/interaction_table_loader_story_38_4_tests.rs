@@ -50,7 +50,11 @@ use tempfile::TempDir;
 /// Path to the real `space_opera` genre pack fixture.
 fn space_opera_path() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../../sidequest-content/genre_packs/space_opera")
+    manifest
+        .join("../../..")
+        .join("sidequest-content")
+        .join("genre_packs")
+        .join("space_opera")
 }
 
 /// Build a minimal valid `rules.yaml` body with a single inline confrontation.

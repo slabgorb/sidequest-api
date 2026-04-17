@@ -30,7 +30,9 @@ fn chargen_payload_has_action_field() {
 
     // Find the closing brace of the struct (next `}` after the struct start)
     let struct_body = &protocol_src[in_payload..];
-    let struct_end = struct_body.find("\n}").expect("struct must have closing brace");
+    let struct_end = struct_body
+        .find("\n}")
+        .expect("struct must have closing brace");
     let struct_text = &struct_body[..struct_end];
 
     assert!(
@@ -53,7 +55,9 @@ fn chargen_payload_has_target_step_field() {
         .expect("CharacterCreationPayload struct must exist");
 
     let struct_body = &protocol_src[in_payload..];
-    let struct_end = struct_body.find("\n}").expect("struct must have closing brace");
+    let struct_end = struct_body
+        .find("\n}")
+        .expect("struct must have closing brace");
     let struct_text = &struct_body[..struct_end];
 
     assert!(
@@ -95,8 +99,7 @@ fn dispatch_handles_chargen_edit_action() {
     let dispatch_src = test_helpers::dispatch_source_combined();
 
     assert!(
-        dispatch_src.contains(r#""edit""#)
-            && dispatch_src.contains("target_step"),
+        dispatch_src.contains(r#""edit""#) && dispatch_src.contains("target_step"),
         "dispatch_character_creation must handle action:edit with target_step.\n\
          The UI sends {{ action: \"edit\", targetStep: N }} from the review screen\n\
          to jump back to a specific chargen step."
@@ -119,8 +122,7 @@ fn chargen_back_emits_otel_event() {
         && (dispatch_src.contains(r#""navigate_back""#)
             || dispatch_src.contains(r#""action_back""#)
             || dispatch_src.contains(r#""chargen_back""#)
-            || (dispatch_src.contains(r#""back""#)
-                && dispatch_src.contains("character_creation")));
+            || (dispatch_src.contains(r#""back""#) && dispatch_src.contains("character_creation")));
 
     assert!(
         has_back_telemetry,

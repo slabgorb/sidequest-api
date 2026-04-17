@@ -348,12 +348,16 @@ mod message_type_tests {
         let msg = result.unwrap();
         let payload_json = serde_json::to_value(&msg).unwrap();
         assert_eq!(
-            payload_json.pointer("/payload/action").and_then(|v| v.as_str()),
+            payload_json
+                .pointer("/payload/action")
+                .and_then(|v| v.as_str()),
             Some("edit"),
             "action field must be 'edit'"
         );
         assert_eq!(
-            payload_json.pointer("/payload/target_step").and_then(|v| v.as_u64()),
+            payload_json
+                .pointer("/payload/target_step")
+                .and_then(|v| v.as_u64()),
             Some(2),
             "target_step must be preserved for edit navigation"
         );
@@ -975,11 +979,17 @@ mod player_location_tests {
         match &decoded {
             GameMessage::PartyStatus { payload, .. } => {
                 assert_eq!(
-                    payload.members[0].current_location.as_ref().map(|s| s.as_str()),
+                    payload.members[0]
+                        .current_location
+                        .as_ref()
+                        .map(|s| s.as_str()),
                     Some("The Rusty Cantina")
                 );
                 assert_eq!(
-                    payload.members[1].current_location.as_ref().map(|s| s.as_str()),
+                    payload.members[1]
+                        .current_location
+                        .as_ref()
+                        .map(|s| s.as_str()),
                     Some("Scrapyard Gate")
                 );
             }
@@ -1045,7 +1055,10 @@ mod player_location_tests {
         match &msg {
             GameMessage::PartyStatus { payload, .. } => {
                 assert_eq!(
-                    payload.members[0].current_location.as_ref().map(|s| s.as_str()),
+                    payload.members[0]
+                        .current_location
+                        .as_ref()
+                        .map(|s| s.as_str()),
                     Some("Market Square")
                 );
             }

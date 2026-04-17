@@ -241,10 +241,8 @@ fn assemble_turn_produces_complete_action_result() {
         footnotes: vec![sidequest_protocol::Footnote {
             marker: Some(1),
             fact_id: None,
-            summary: sidequest_protocol::NonBlankString::new(
-                "The market is always busy at noon.",
-            )
-            .expect("literal is non-blank"),
+            summary: sidequest_protocol::NonBlankString::new("The market is always busy at noon.")
+                .expect("literal is non-blank"),
             category: FactCategory::Place,
             is_new: true,
         }],

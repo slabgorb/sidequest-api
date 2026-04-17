@@ -149,7 +149,7 @@ async fn test_run_validator_receives_turn_records() {
     // Real test will verify legality checks and OTEL events.
 
     let (_tx, rx) = mpsc::channel(100);
-    
+
     // This should not panic even if no legality checks are wired yet.
     let result = run_validator(rx).await;
     assert_eq!(result.len(), 0); // No records sent, so empty result

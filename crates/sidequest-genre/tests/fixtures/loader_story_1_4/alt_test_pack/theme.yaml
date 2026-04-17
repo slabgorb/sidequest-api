@@ -1,0 +1,18 @@
+primary: '#333333'
+secondary: '#666666'
+accent: '#999999'
+background: '#111111'
+surface: '#222222'
+text: '#eeeeee'
+border_style: thin
+web_font_family: serif
+dinkus:
+  enabled: false
+  cooldown: 2
+  default_weight: medium
+  glyph:
+    light: "·"
+    medium: "···"
+    heavy: "—·—"
+session_opener:
+  enabled: false

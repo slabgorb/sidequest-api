@@ -56,10 +56,8 @@ fn sample_footnote_callback(
 
 fn sample_payload_with_footnotes() -> NarrationPayload {
     NarrationPayload {
-        text: nbs(
-            "As you enter the grove, Reva feels a deep wrongness [1]. \
-               The old well [2] sits at the center, just as the innkeeper described [3].",
-        ),
+        text: nbs("As you enter the grove, Reva feels a deep wrongness [1]. \
+               The old well [2] sits at the center, just as the innkeeper described [3]."),
         state_delta: None,
         footnotes: vec![
             sample_footnote_new(

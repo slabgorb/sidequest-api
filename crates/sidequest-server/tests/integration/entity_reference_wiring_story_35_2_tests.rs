@@ -113,7 +113,7 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
         known_facts: vec![],
         affinities: vec![],
         is_friendly: true,
-            resolved_archetype: None,
+        resolved_archetype: None,
     }
 }
 

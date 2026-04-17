@@ -1,0 +1,4 @@
+name: Alt Test Pack
+version: "0.1.0"
+description: "Minimal fixture pack for testing multi-pack loader/cache scenarios"
+min_sidequest_version: "0.1.0"

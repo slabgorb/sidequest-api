@@ -1,0 +1,4 @@
+name: Summary Test Pack
+version: "0.1.0"
+description: "Minimal fixture pack for lore summary tests — factions, cultures, regions all have summaries"
+min_sidequest_version: "0.1.0"

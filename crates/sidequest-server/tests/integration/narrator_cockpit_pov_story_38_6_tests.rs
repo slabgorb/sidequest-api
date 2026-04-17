@@ -122,14 +122,8 @@ fn encounter_with_per_actor_state() -> StructuredEncounter {
         "closure".to_string(),
         serde_json::Value::String("opening".to_string()),
     );
-    red_state.insert(
-        "gun_solution".to_string(),
-        serde_json::Value::Bool(true),
-    );
-    red_state.insert(
-        "viewer_energy".to_string(),
-        serde_json::json!(30),
-    );
+    red_state.insert("gun_solution".to_string(), serde_json::Value::Bool(true));
+    red_state.insert("viewer_energy".to_string(), serde_json::json!(30));
 
     let mut blue_state = HashMap::new();
     blue_state.insert(
@@ -148,14 +142,8 @@ fn encounter_with_per_actor_state() -> StructuredEncounter {
         "closure".to_string(),
         serde_json::Value::String("opening".to_string()),
     );
-    blue_state.insert(
-        "gun_solution".to_string(),
-        serde_json::Value::Bool(false),
-    );
-    blue_state.insert(
-        "viewer_energy".to_string(),
-        serde_json::json!(55),
-    );
+    blue_state.insert("gun_solution".to_string(), serde_json::Value::Bool(false));
+    blue_state.insert("viewer_energy".to_string(), serde_json::json!(55));
 
     StructuredEncounter {
         encounter_type: "dogfight".to_string(),
@@ -398,8 +386,8 @@ fn sealed_letter_outcome_has_narration_hint_field() {
     commits.insert("red".to_string(), "straight".to_string());
     commits.insert("blue".to_string(), "straight".to_string());
 
-    let outcome = resolve_sealed_letter_lookup(&mut enc, &commits, table)
-        .expect("resolution should succeed");
+    let outcome =
+        resolve_sealed_letter_lookup(&mut enc, &commits, table).expect("resolution should succeed");
 
     // Compile gate: accessing .narration_hint proves the field exists.
     // If the field were missing, this would be E0609.
@@ -469,8 +457,7 @@ fn format_encounter_context_source_renders_per_actor_state() {
     // prompt.rs calls enc.format_encounter_context(def) — that's
     // already wired. But we need to verify that format_encounter_context
     // in encounter.rs actually reads per_actor_state.
-    let encounter_src =
-        include_str!("../../../sidequest-game/src/encounter.rs");
+    let encounter_src = include_str!("../../../sidequest-game/src/encounter.rs");
     assert!(
         encounter_src.contains("per_actor_state"),
         "format_encounter_context must reference per_actor_state in \

@@ -1,0 +1,4 @@
+positive_suffix: oil painting, dramatic lighting
+negative_prompt: blurry, low quality
+preferred_model: schnell
+base_seed: 42

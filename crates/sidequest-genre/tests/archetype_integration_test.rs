@@ -5,7 +5,9 @@ use std::path::Path;
 fn test_load_low_fantasy_with_constraints() {
     let content_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
-        .join("sidequest-content/genre_packs/low_fantasy");
+        .join("sidequest-content")
+        .join("genre_workshopping")
+        .join("low_fantasy");
 
     // Skip if content repo not available
     if !content_path.exists() {
@@ -55,7 +57,9 @@ fn test_load_low_fantasy_with_constraints() {
 fn test_base_archetypes_loaded() {
     let content_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
-        .join("sidequest-content/genre_packs/low_fantasy");
+        .join("sidequest-content")
+        .join("genre_workshopping")
+        .join("low_fantasy");
 
     if !content_path.exists() {
         eprintln!("Skipping: sidequest-content not found");
@@ -84,7 +88,9 @@ fn test_base_archetypes_loaded() {
 fn test_full_resolution_chain() {
     let content_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
-        .join("sidequest-content/genre_packs/low_fantasy");
+        .join("sidequest-content")
+        .join("genre_workshopping")
+        .join("low_fantasy");
 
     if !content_path.exists() {
         eprintln!("Skipping: sidequest-content not found");

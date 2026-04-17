@@ -1,0 +1,8 @@
+- name: The Hidden Threat
+  category: conflict
+  description: "An enemy lurks unseen until the moment is right."
+  triggers:
+    - player investigates suspicious activity
+  narrative_hints:
+    - build dread through environmental clues
+  tension_level: 0.6

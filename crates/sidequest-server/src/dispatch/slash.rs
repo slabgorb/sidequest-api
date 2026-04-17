@@ -89,8 +89,7 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
         let _span = tracing::info_span!("scenario.accusation", command = %ctx.action).entered();
         let parts: Vec<&str> = ctx.action.splitn(3, ' ').collect();
         if parts.len() < 2 {
-            let (n, e) =
-                slash_narration("Usage: /accuse <npc_name> [reason]", ctx.player_id);
+            let (n, e) = slash_narration("Usage: /accuse <npc_name> [reason]", ctx.player_id);
             return Some(vec![n, e]);
         }
 

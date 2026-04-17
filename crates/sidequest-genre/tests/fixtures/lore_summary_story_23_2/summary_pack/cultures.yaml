@@ -1,0 +1,26 @@
+- name: Highfolk
+  summary: "Noble court culture with elaborate naming ceremonies"
+  description: "Aristocratic culture using Latinate naming conventions."
+  slots:
+    given_name:
+      corpora:
+        - corpus: latin.txt
+          weight: 1.0
+      lookback: 3
+  person_patterns:
+    - "{given_name}"
+  place_patterns:
+    - "{given_name}ia"
+- name: Stoneback
+  summary: "Dwarven hill clan with patronymic naming"
+  description: "Mountain folk using Norse-influenced patronymics."
+  slots:
+    given_name:
+      corpora:
+        - corpus: norse.txt
+          weight: 1.0
+      lookback: 2
+  person_patterns:
+    - "{given_name}"
+  place_patterns:
+    - "{given_name}heim"

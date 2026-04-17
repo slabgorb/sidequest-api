@@ -1219,10 +1219,7 @@ impl CharacterBuilder {
         // were populated from chargen hints, not left empty.
         WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
             .field("action", "abilities_resolved")
-            .field(
-                "count",
-                abilities.len() as i64,
-            )
+            .field("count", abilities.len() as i64)
             .field(
                 "names",
                 &abilities
@@ -1263,9 +1260,10 @@ impl CharacterBuilder {
             known_facts: vec![],
             affinities: vec![],
             is_friendly: true,
-            resolved_archetype: acc.jungian_hint.as_ref().and_then(|j| {
-                acc.rpg_role_hint.as_ref().map(|r| format!("{j}/{r}"))
-            }),
+            resolved_archetype: acc
+                .jungian_hint
+                .as_ref()
+                .and_then(|j| acc.rpg_role_hint.as_ref().map(|r| format!("{j}/{r}"))),
         };
 
         Ok(character)

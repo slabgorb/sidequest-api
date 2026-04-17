@@ -680,11 +680,7 @@ impl AppState {
 
     /// Take-and-remove the turn id for a completed render job.
     pub fn take_render_turn(&self, job_id: &uuid::Uuid) -> Option<u64> {
-        self.inner
-            .render_job_turns
-            .lock()
-            .unwrap()
-            .remove(job_id)
+        self.inner.render_job_turns.lock().unwrap().remove(job_id)
     }
 
     /// Look up and remove a render job's session key (story 37-2).
@@ -701,11 +697,7 @@ impl AppState {
     /// Record the most recent completed render for a session so the next
     /// `build_response_messages` call can fold it into the scrapbook entry
     /// (story 33-18 follow-up — thread RenderSubject through DispatchContext).
-    pub(crate) fn record_latest_render(
-        &self,
-        session_key: &str,
-        record: LatestScrapbookRender,
-    ) {
+    pub(crate) fn record_latest_render(&self, session_key: &str, record: LatestScrapbookRender) {
         self.inner
             .latest_scrapbook_render
             .lock()
@@ -1007,19 +999,18 @@ pub fn build_router(state: AppState) -> Router {
                             }
                         };
 
-                        let served_url_nbs = match sidequest_protocol::NonBlankString::new(
-                            &served_url,
-                        ) {
-                            Ok(u) => u,
-                            Err(_) => {
-                                tracing::error!(
-                                    job_id = %job_id,
-                                    "render_broadcast_blocked — served_url resolved to blank"
-                                );
-                                state_for_broadcaster.take_render_session(&job_id);
-                                continue;
-                            }
-                        };
+                        let served_url_nbs =
+                            match sidequest_protocol::NonBlankString::new(&served_url) {
+                                Ok(u) => u,
+                                Err(_) => {
+                                    tracing::error!(
+                                        job_id = %job_id,
+                                        "render_broadcast_blocked — served_url resolved to blank"
+                                    );
+                                    state_for_broadcaster.take_render_session(&job_id);
+                                    continue;
+                                }
+                            };
                         // The render pipeline in lib.rs drives IMAGE straight from the
                         // RenderJobResult without a subject in scope, so description is
                         // sourced from the tier/scene_type hint. A blank hint means the
@@ -2358,7 +2349,6 @@ async fn dispatch_message(
                     payload: dice_req.clone(),
                 });
             }
-
         }
 
         // Story 34-11: OTEL — dice request sent. Two-phase marker so the
@@ -2500,15 +2490,12 @@ async fn dispatch_message(
                             ss_guard.pending_replay_action = None;
                             ss_guard.pending_replay_beat_id = None;
                             ss_guard.pending_roll_outcome = None;
-                            WatcherEventBuilder::new(
-                                "dice",
-                                WatcherEventType::StateTransition,
-                            )
-                            .field("event", "dice.pending_cleared_on_reconnect")
-                            .field("cleared_requests", cleared_requests as i64)
-                            .field("cleared_action", cleared_action)
-                            .field("cleared_beat", cleared_beat)
-                            .send();
+                            WatcherEventBuilder::new("dice", WatcherEventType::StateTransition)
+                                .field("event", "dice.pending_cleared_on_reconnect")
+                                .field("cleared_requests", cleared_requests as i64)
+                                .field("cleared_action", cleared_action)
+                                .field("cleared_beat", cleared_beat)
+                                .send();
                             tracing::warn!(
                                 cleared_requests,
                                 cleared_action,
@@ -2843,7 +2830,9 @@ async fn dispatch_message(
                                         .regions
                                         .iter()
                                         .filter_map(|(slug, r)| {
-                                            let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                            let name =
+                                                sidequest_protocol::NonBlankString::new(&r.name)
+                                                    .ok()?;
                                             Some((
                                                 slug.clone(),
                                                 sidequest_protocol::CartographyRegion {
@@ -2859,7 +2848,9 @@ async fn dispatch_message(
                                         .routes
                                         .iter()
                                         .filter_map(|r| {
-                                            let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                            let name =
+                                                sidequest_protocol::NonBlankString::new(&r.name)
+                                                    .ok()?;
                                             Some(sidequest_protocol::CartographyRoute {
                                                 name,
                                                 description: r.description.clone(),
@@ -3113,14 +3104,12 @@ async fn dispatch_message(
                                 .and_then(|c| c.stats.get(&stat_check))
                                 .map(|&stat_val| (stat_val - 10) / 2)
                                 .unwrap_or(0);
-                            let raw_dc = (10u32 + beat_metric_delta.unsigned_abs() * 2)
-                                .clamp(10, 30);
-                            let difficulty = std::num::NonZeroU32::new(raw_dc)
-                                .expect("raw_dc clamped >= 10");
-                            let char_name = character_name
-                                .as_deref()
-                                .unwrap_or("Unknown")
-                                .to_string();
+                            let raw_dc =
+                                (10u32 + beat_metric_delta.unsigned_abs() * 2).clamp(10, 30);
+                            let difficulty =
+                                std::num::NonZeroU32::new(raw_dc).expect("raw_dc clamped >= 10");
+                            let char_name =
+                                character_name.as_deref().unwrap_or("Unknown").to_string();
                             let dice_req = DiceRequestPayload {
                                 request_id: payload.request_id.clone(),
                                 rolling_player_id: player_id.to_string(),
@@ -3132,10 +3121,7 @@ async fn dispatch_message(
                                 modifier: char_stat_modifier,
                                 stat: stat_check.clone(),
                                 difficulty,
-                                context: format!(
-                                    "{} — {} check",
-                                    beat_label, stat_check
-                                ),
+                                context: format!("{} — {} check", beat_label, stat_check),
                             };
 
                             // Synthesize replay action for narrator
@@ -3153,12 +3139,13 @@ async fn dispatch_message(
                                 let holder_guard = shared_session_holder.lock().await;
                                 if let Some(ref ss_arc) = *holder_guard {
                                     let mut ss = ss_arc.lock().await;
-                                    ss.pending_dice_requests.insert(
-                                        dice_req.request_id.clone(),
-                                        dice_req,
-                                    );
-                                    let action_nbs = sidequest_protocol::NonBlankString::new(&action_text)
-                                        .expect("beat-resolved action text is non-empty by literal fmt");
+                                    ss.pending_dice_requests
+                                        .insert(dice_req.request_id.clone(), dice_req);
+                                    let action_nbs =
+                                        sidequest_protocol::NonBlankString::new(&action_text)
+                                            .expect(
+                                            "beat-resolved action text is non-empty by literal fmt",
+                                        );
                                     ss.pending_replay_action =
                                         Some(sidequest_protocol::PlayerActionPayload {
                                             action: action_nbs,
