@@ -25,6 +25,8 @@
 
 use std::sync::Arc;
 
+use sidequest_agents::client::ClaudeClientError;
+use sidequest_agents::preprocessor::PreprocessError;
 use sidequest_test_support::{ClaudeLike, MockClaudeClient};
 
 /// Expected Dev-facing API: a `preprocess_action_with_client` function that
@@ -37,8 +39,21 @@ use sidequest_test_support::{ClaudeLike, MockClaudeClient};
 #[test]
 fn preprocessor_accepts_arc_dyn_claude_like() {
     let mut mock = MockClaudeClient::new();
+    // Set every field, including non-default booleans, so this test pins the
+    // whole `PreprocessedAction` round-trip — not just the three string fields.
+    // A future change that makes the booleans required (removes
+    // `#[serde(default)]`) must not regress this path silently.
     mock.respond_with(
-        r#"{"you":"you draw your sword","named":"Rux draws his sword","intent":"draw weapon"}"#,
+        r#"{
+            "you":"you draw your sword",
+            "named":"Rux draws his sword",
+            "intent":"draw weapon",
+            "is_power_grab":false,
+            "references_inventory":true,
+            "references_npc":false,
+            "references_ability":true,
+            "references_location":false
+        }"#,
     );
 
     let client: Arc<dyn ClaudeLike> = Arc::new(mock);
@@ -57,6 +72,76 @@ fn preprocessor_accepts_arc_dyn_claude_like() {
     assert_eq!(action.you, "you draw your sword");
     assert_eq!(action.named, "Rux draws his sword");
     assert_eq!(action.intent, "draw weapon");
+    assert!(
+        action.references_inventory,
+        "references_inventory must round-trip through the preprocessor"
+    );
+    assert!(
+        action.references_ability,
+        "references_ability must round-trip through the preprocessor"
+    );
+    assert!(!action.is_power_grab, "is_power_grab must round-trip as false");
+    assert!(!action.references_npc, "references_npc must round-trip as false");
+    assert!(
+        !action.references_location,
+        "references_location must round-trip as false"
+    );
+}
+
+/// A scripted `Err` from the injected client must propagate through the
+/// preprocessor as `PreprocessError::LlmFailed(_)` — Epic 40's whole premise
+/// is that error paths through the DI boundary are observable and pinned.
+/// A refactor that swallowed the error (or converted it to `Ok("")`) would
+/// otherwise be undetectable by the test suite.
+#[test]
+fn preprocessor_propagates_client_error_as_llm_failed() {
+    let mut mock = MockClaudeClient::new();
+    mock.respond_with_error(ClaudeClientError::EmptyResponse);
+    let client: Arc<dyn ClaudeLike> = Arc::new(mock);
+
+    let result = sidequest_agents::preprocessor::preprocess_action_with_client(
+        client,
+        "some player input",
+        "Rux",
+    );
+
+    assert!(
+        matches!(result, Err(PreprocessError::LlmFailed(_))),
+        "a scripted client error must propagate as PreprocessError::LlmFailed, got {result:?}"
+    );
+}
+
+/// Same propagation discipline for `ClaudeClientError::Timeout` — a timeout
+/// from the trait object must not be silently converted to any other error
+/// variant or to Ok.
+#[test]
+fn preprocessor_propagates_client_timeout_as_llm_failed() {
+    let mut mock = MockClaudeClient::new();
+    mock.respond_with_error(ClaudeClientError::Timeout {
+        elapsed: std::time::Duration::from_secs(30),
+    });
+    let client: Arc<dyn ClaudeLike> = Arc::new(mock);
+
+    let result = sidequest_agents::preprocessor::preprocess_action_with_client(
+        client,
+        "another input",
+        "Rux",
+    );
+
+    assert!(
+        matches!(result, Err(PreprocessError::LlmFailed(_))),
+        "a scripted timeout must propagate as PreprocessError::LlmFailed, got {result:?}"
+    );
+    // The message must carry the upstream detail so GM-panel debugging can see it.
+    match result {
+        Err(PreprocessError::LlmFailed(msg)) => {
+            assert!(
+                msg.to_lowercase().contains("timed out") || msg.to_lowercase().contains("timeout"),
+                "LlmFailed message should carry timeout information; got: {msg}"
+            );
+        }
+        other => panic!("expected LlmFailed, got {other:?}"),
+    }
 }
 
 #[test]

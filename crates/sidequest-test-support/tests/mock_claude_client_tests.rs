@@ -103,6 +103,58 @@ fn records_session_call_metadata() {
     assert_eq!(call.model(), "opus");
     assert_eq!(call.session_id(), Some("sess-xyz"));
     assert_eq!(call.system_prompt(), Some("be concise"));
+    // Empty tools and env must still round-trip as empty (not None, not missing).
+    // A bug that silently dropped the empty slices would not be caught by the
+    // other assertions, so pin them explicitly.
+    assert!(
+        call.allowed_tools().is_empty(),
+        "empty allowed_tools must round-trip as an empty slice"
+    );
+    assert!(
+        call.env_vars().is_empty(),
+        "empty env_vars must round-trip as an empty map"
+    );
+}
+
+#[test]
+fn records_session_call_with_non_empty_tools_and_env() {
+    // Companion to records_session_call_metadata: the empty-case test above
+    // cannot detect a bug where a non-empty slice silently becomes empty
+    // during the to_vec() / clone() inside the mock's record() path.
+    let mut mock = MockClaudeClient::new();
+    mock.respond_with("session response");
+
+    let mut env = std::collections::HashMap::new();
+    env.insert("SIDEQUEST_GENRE".to_string(), "caverns_and_claudes".to_string());
+    env.insert("SIDEQUEST_CONTENT_PATH".to_string(), "/tmp/content".to_string());
+    let tools = vec!["Read".to_string(), "Bash".to_string()];
+
+    let _ = mock.send_with_session(
+        "session prompt with tools",
+        "opus",
+        Some("sess-with-tools"),
+        Some("tool-aware system prompt"),
+        &tools,
+        &env,
+    );
+
+    let recorded = mock.recorded_calls();
+    assert_eq!(recorded.len(), 1);
+    let call = &recorded[0];
+    assert_eq!(
+        call.allowed_tools(),
+        &["Read".to_string(), "Bash".to_string()],
+        "allowed_tools must round-trip in order and without loss"
+    );
+    assert_eq!(call.env_vars().len(), 2);
+    assert_eq!(
+        call.env_vars().get("SIDEQUEST_GENRE").map(String::as_str),
+        Some("caverns_and_claudes")
+    );
+    assert_eq!(
+        call.env_vars().get("SIDEQUEST_CONTENT_PATH").map(String::as_str),
+        Some("/tmp/content")
+    );
 }
 
 #[test]
