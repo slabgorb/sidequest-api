@@ -239,6 +239,38 @@ pub(super) fn update_npc_registry(
                     .send();
             }
         }
+
+        // Resolution-tier promotion: every NPC the narrator mentioned this
+        // turn counts as a non-transactional interaction against the full
+        // `Npc` record held in the snapshot. Counter thresholds in
+        // `evaluate_promotion` drive Spawn → Engage → Promote transitions,
+        // and `log_promotion_event` surfaces each transition as a watcher
+        // event so the GM panel sees the tier change.
+        for npc_mention in &result.npcs_present {
+            if npc_mention.name.is_empty() {
+                continue;
+            }
+            let mention_lower = npc_mention.name.to_lowercase();
+            if let Some(full_npc) = ctx.snapshot.npcs.iter_mut().find(|n| {
+                let full_lower = n.core.name.as_str().to_lowercase();
+                full_lower == mention_lower
+                    || full_lower.contains(&mention_lower)
+                    || mention_lower.contains(&full_lower)
+            }) {
+                full_npc.non_transactional_interactions =
+                    full_npc.non_transactional_interactions.saturating_add(1);
+                let previous_tier = full_npc.resolution_tier;
+                if let Some(new_tier) = evaluate_promotion(full_npc) {
+                    log_promotion_event(
+                        full_npc.core.name.as_str(),
+                        previous_tier,
+                        new_tier,
+                        full_npc.non_transactional_interactions,
+                        turn_approx,
+                    );
+                }
+            }
+        }
     }
     WatcherEventBuilder::new("npc_registry", WatcherEventType::SubsystemExerciseSummary)
         .field("event", "npc_registry.scan")
@@ -287,9 +319,12 @@ pub(super) fn update_npc_registry(
     creature_images
 }
 
-/// Evaluate whether an NPC should be promoted based on non-transactional interactions.
-/// Three non-transactional interactions triggers promotion from spawn to engage,
-/// and from engage to promote.
+/// Evaluate whether an NPC should be promoted based on non-transactional
+/// interactions. Zero interactions = Spawn; one or two = Engage; three or
+/// more = Promote. Called by `update_npc_registry` once per narrator
+/// mention of the NPC; returns the new tier only when it differs from the
+/// previous one so the caller can emit a single promotion event per
+/// transition.
 pub fn evaluate_promotion(npc: &mut Npc) -> Option<ResolutionTier> {
     let previous = npc.resolution_tier;
     let new_tier = match npc.non_transactional_interactions {
@@ -306,7 +341,10 @@ pub fn evaluate_promotion(npc: &mut Npc) -> Option<ResolutionTier> {
     }
 }
 
-/// Log a promotion event. Call this after evaluate_promotion returns Some.
+/// Emit a watcher event for an NPC tier promotion. Paired with
+/// `evaluate_promotion`: call this only when `evaluate_promotion` returned
+/// `Some(new_tier)` so each transition surfaces exactly once in the GM
+/// panel's telemetry stream.
 pub fn log_promotion_event(
     npc_name: &str,
     from_tier: ResolutionTier,
