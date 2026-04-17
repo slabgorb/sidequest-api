@@ -19,6 +19,7 @@ mod dice_resolver_wiring_34_3;
 mod embed_endpoint_story_37_5_tests;
 mod encounter_context_wiring_story_28_4_tests;
 mod entity_reference_wiring_story_35_2_tests;
+mod extend_return_story_38_8_tests;
 mod guest_npc_wiring_story_35_6_tests;
 mod image_broadcast_story_4_5_tests;
 mod image_pacing_story_14_6_tests;

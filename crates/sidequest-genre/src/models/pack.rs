@@ -172,8 +172,11 @@ pub struct PackMeta {
 /// Recommended player count for a genre pack.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RecommendedPlayers {
+    /// Minimum number of players.
     pub min: u8,
+    /// Maximum number of players.
     pub max: u8,
+    /// Optimal player count, if defined.
     #[serde(default)]
     pub sweet_spot: Option<u8>,
 }
