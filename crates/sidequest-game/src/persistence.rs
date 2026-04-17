@@ -490,11 +490,18 @@ impl SessionStore for SqliteStore {
                     serde_json::from_str(&npcs_json).unwrap_or_default();
                 Ok(sidequest_protocol::ScrapbookEntryPayload {
                     turn_id,
-                    scene_title: scene_title.and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
+                    scene_title: scene_title
+                        .and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
                     scene_type,
-                    location: sidequest_protocol::NonBlankString::new(&location).unwrap_or_else(|_| sidequest_protocol::NonBlankString::new("unknown").expect("literal")),
-                    image_url: image_url.and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
-                    narrative_excerpt: sidequest_protocol::NonBlankString::new(&narrative_excerpt).unwrap_or_else(|_| sidequest_protocol::NonBlankString::new("…").expect("literal")),
+                    location: sidequest_protocol::NonBlankString::new(&location).unwrap_or_else(
+                        |_| sidequest_protocol::NonBlankString::new("unknown").expect("literal"),
+                    ),
+                    image_url: image_url
+                        .and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
+                    narrative_excerpt: sidequest_protocol::NonBlankString::new(&narrative_excerpt)
+                        .unwrap_or_else(|_| {
+                            sidequest_protocol::NonBlankString::new("…").expect("literal")
+                        }),
                     world_facts,
                     npcs_present,
                 })
@@ -700,7 +707,8 @@ pub enum PersistenceCommand {
         genre_slug: String,
         world_slug: String,
         player_name: String,
-        reply: oneshot::Sender<Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError>>,
+        reply:
+            oneshot::Sender<Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError>>,
     },
     /// Graceful shutdown.
     Shutdown,

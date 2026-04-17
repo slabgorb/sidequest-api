@@ -27,8 +27,7 @@ use sidequest_agents::entity_reference::{
 use sidequest_agents::patch_legality::ValidationResult;
 use sidequest_agents::turn_record::{PatchSummary, TurnRecord};
 use sidequest_game::{
-    Character, CreatureCore, Disposition, GameSnapshot, Inventory, Item, Npc, StateDelta,
-    TurnManager,
+    Character, CreatureCore, GameSnapshot, Inventory, Item, Npc, StateDelta, TurnManager,
 };
 use sidequest_protocol::NonBlankString;
 
@@ -86,31 +85,9 @@ fn mock_state_delta() -> StateDelta {
 
 /// Build an NPC with the given name.
 fn make_npc(name: &str) -> Npc {
-    Npc {
-        core: CreatureCore {
-            name: NonBlankString::new(name).unwrap(),
-            description: NonBlankString::new("A test NPC").unwrap(),
-            personality: NonBlankString::new("Stoic").unwrap(),
-            level: 3,
-            hp: 20,
-            max_hp: 20,
-            ac: 12,
-            xp: 0,
-            inventory: Inventory::default(),
-            statuses: vec![],
-        },
-        voice_id: None,
-        disposition: Disposition::new(0),
-        pronouns: None,
-        appearance: None,
-        age: None,
-        build: None,
-        height: None,
-        distinguishing_features: vec![],
-        location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
-        ocean: None,
-        belief_state: sidequest_game::belief_state::BeliefState::default(),
-    }
+    let mut npc = Npc::combat_minimal(name, 20, 20, 3);
+    npc.location = Some(NonBlankString::new("The Rusty Valve").unwrap());
+    npc
 }
 
 /// Build a Character with the given name and optional inventory items.
@@ -158,6 +135,7 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
         known_facts: vec![],
         affinities: vec![],
         is_friendly: true,
+        resolved_archetype: None,
     }
 }
 

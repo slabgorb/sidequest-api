@@ -27,10 +27,10 @@ mod npc_registry;
 mod patching;
 mod persistence;
 pub(crate) mod pregen;
-pub(crate) mod sealed_letter;
 mod prompt;
 mod render;
 mod response;
+pub(crate) mod sealed_letter;
 mod session_sync;
 mod slash;
 mod state_mutations;
@@ -133,7 +133,8 @@ pub(crate) struct DispatchContext<'a> {
     /// Story 15-8: eliminates the load-before-save round-trip on every turn.
     pub snapshot: &'a mut sidequest_game::state::GameSnapshot,
     /// Direct sender to the client WebSocket writer — used to emit narration
-    /// immediately before state cleanup completes (approach A streaming).
+    /// immediately before state cleanup completes (streaming the prose out to
+    /// the client while the server finishes post-narration bookkeeping).
     pub tx: &'a tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
     /// Monster Manual — persistent pre-generated content pool (ADR-059).
     /// Loaded from `~/.sidequest/manuals/{genre}_{world}.json` on session start.
@@ -601,9 +602,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         return aside::handle_aside(ctx).await;
     }
 
-    // Inline preprocessor (approach A): no separate Haiku call. The narrator/creature_smith
-    // produces action_rewrite + action_flags in its JSON block. For prompt building, use
-    // all-flags-on so no sections are gated out — the narrator has full context.
+    // Mechanical preprocessor fallback used only for prompt construction: build
+    // `preprocessed` with a deterministic "You {action}" transform and
+    // all-references-on so no prompt sections are gated out. The narrator's own
+    // `action_rewrite` / `action_flags` are emitted in the game_patch JSON block
+    // and extracted post-call in `assemble_turn` (tools/assemble_turn.rs:212-213).
     let preprocessed = sidequest_game::PreprocessedAction {
         you: {
             let trimmed = ctx.action.trim_start();
@@ -818,9 +821,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("result", "success")
                         .field("attempts", attempt + 1)
                         .send();
-                    let narration_nbs =
-                        sidequest_protocol::NonBlankString::new(&narration)
-                            .expect("shared barrier narration is non-empty when retrieved by non-claimer");
+                    let narration_nbs = sidequest_protocol::NonBlankString::new(&narration).expect(
+                        "shared barrier narration is non-empty when retrieved by non-claimer",
+                    );
                     let msg = GameMessage::Narration {
                         payload: NarrationPayload {
                             text: narration_nbs,
@@ -1185,30 +1188,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         );
     }
 
-    // Update preprocessed from inline agent output (approach A — no separate Haiku call).
-    let _preprocessed =
-        if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
-            tracing::info!(
-                you = %rw.you, named = %rw.named, intent = %rw.intent,
-                power_grab = flags.is_power_grab,
-                "Inline preprocessor fields extracted from agent response"
-            );
-            sidequest_game::PreprocessedAction {
-                you: rw.you.clone(),
-                named: rw.named.clone(),
-                intent: rw.intent.clone(),
-                is_power_grab: flags.is_power_grab,
-                references_inventory: flags.references_inventory,
-                references_npc: flags.references_npc,
-                references_ability: flags.references_ability,
-                references_location: flags.references_location,
-            }
-        } else {
-            tracing::debug!("Agent did not produce inline preprocessor fields — using defaults");
-            preprocessed
-        };
-
     // Watcher: narration generated (with intent classification and agent routing)
+    //
+    // action_rewrite / action_flags fields surface the narrator's LLM-quality
+    // action classification to the GM panel. Per CLAUDE.md OTEL Observability
+    // Principle: without these fields on the watcher, we can't detect when the
+    // narrator emits an is_power_grab=true or when the preprocessor fallback
+    // is silently winning every turn.
+    let action_rewrite_intent: Option<&str> =
+        result.action_rewrite.as_ref().map(|r| r.intent.as_str());
+    let action_flags_is_power_grab: Option<bool> =
+        result.action_flags.as_ref().map(|f| f.is_power_grab);
+    let action_flags_references_npc: Option<bool> =
+        result.action_flags.as_ref().map(|f| f.references_npc);
     WatcherEventBuilder::new("agent", WatcherEventType::AgentSpanClose)
         .field("narration_len", result.narration.len())
         .field("is_degraded", result.is_degraded)
@@ -1222,6 +1214,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field("has_new_npcs", result.npcs_present.iter().any(|n| n.is_new))
         .field("items_gained_count", result.items_gained.len())
         .field("extraction_tier", &result.prompt_tier)
+        .field_opt("action_rewrite_intent", &action_rewrite_intent)
+        .field_opt("action_flags_is_power_grab", &action_flags_is_power_grab)
+        .field_opt("action_flags_references_npc", &action_flags_references_npc)
         .send();
 
     // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
@@ -1500,8 +1495,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 ctx.discovered_regions
                     .iter()
                     .filter_map(|name| {
-                        sidequest_protocol::NonBlankString::new(name).ok().map(
-                            |nbs_name| sidequest_protocol::ExploredLocation {
+                        sidequest_protocol::NonBlankString::new(name)
+                            .ok()
+                            .map(|nbs_name| sidequest_protocol::ExploredLocation {
                                 // Region mode has no separate slug — id mirrors name.
                                 id: name.clone(),
                                 name: nbs_name,
@@ -1514,8 +1510,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 size: None,
                                 is_current_room: false,
                                 tactical_grid: None,
-                            },
-                        )
+                            })
                     })
                     .collect()
             };
@@ -1833,66 +1828,68 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Borrow strategy: extract all data we need from the immutable encounter
     // ref first, drop that borrow, then take &mut for the resolution call.
     {
-        let sealed_letter_input: Option<(HashMap<String, String>, sidequest_genre::InteractionTable)> = ctx
-            .snapshot
-            .encounter
-            .as_ref()
-            .and_then(|encounter| {
-                let def = crate::find_confrontation_def(&ctx.confrontation_defs, &encounter.encounter_type)?;
-                if def.resolution_mode != sidequest_genre::ResolutionMode::SealedLetterLookup {
-                    return None;
-                }
-                let interaction_table = def.interaction_table.clone()?;
+        let sealed_letter_input: Option<(
+            HashMap<String, String>,
+            sidequest_genre::InteractionTable,
+        )> = ctx.snapshot.encounter.as_ref().and_then(|encounter| {
+            let def =
+                crate::find_confrontation_def(&ctx.confrontation_defs, &encounter.encounter_type)?;
+            if def.resolution_mode != sidequest_genre::ResolutionMode::SealedLetterLookup {
+                return None;
+            }
+            let interaction_table = def.interaction_table.clone()?;
 
-                // Gather committed maneuvers from the TurnBarrier. named_actions()
-                // returns char_name → action_text. We map through encounter actors
-                // to get role → maneuver (e.g., "red" → "bank", "blue" → "straight").
-                let commits: HashMap<String, String> = if let Some(ref outcome) = barrier_outcome {
-                    let named = outcome.barrier.named_actions();
-                    encounter
-                        .actors
-                        .iter()
-                        .filter_map(|actor| {
-                            named.get(&actor.name).map(|maneuver| {
-                                (actor.role.clone(), maneuver.clone())
-                            })
-                        })
-                        .collect()
-                } else {
-                    // Solo play: single player's action is the maneuver for
-                    // whichever role they occupy. The NPC actor gets the first
-                    // maneuver from maneuvers_consumed as a default. starting_state
-                    // is a descriptor state label ("merge"), NOT a valid maneuver.
-                    let npc_default = interaction_table.maneuvers_consumed
-                        .first()
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            tracing::warn!(
-                                "sealed_letter: maneuvers_consumed is empty — no valid NPC default"
-                            );
-                            "unknown".to_string()
-                        });
-                    let mut solo = HashMap::new();
-                    for actor in &encounter.actors {
-                        if actor.name == ctx.char_name {
-                            solo.insert(actor.role.clone(), ctx.action.to_string());
-                        } else {
-                            solo.insert(actor.role.clone(), npc_default.clone());
-                        }
+            // Gather committed maneuvers from the TurnBarrier. named_actions()
+            // returns char_name → action_text. We map through encounter actors
+            // to get role → maneuver (e.g., "red" → "bank", "blue" → "straight").
+            let commits: HashMap<String, String> = if let Some(ref outcome) = barrier_outcome {
+                let named = outcome.barrier.named_actions();
+                encounter
+                    .actors
+                    .iter()
+                    .filter_map(|actor| {
+                        named
+                            .get(&actor.name)
+                            .map(|maneuver| (actor.role.clone(), maneuver.clone()))
+                    })
+                    .collect()
+            } else {
+                // Solo play: single player's action is the maneuver for
+                // whichever role they occupy. The NPC actor gets the first
+                // maneuver from maneuvers_consumed as a default. starting_state
+                // is a descriptor state label ("merge"), NOT a valid maneuver.
+                let npc_default = interaction_table
+                    .maneuvers_consumed
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        tracing::warn!(
+                            "sealed_letter: maneuvers_consumed is empty — no valid NPC default"
+                        );
+                        "unknown".to_string()
+                    });
+                let mut solo = HashMap::new();
+                for actor in &encounter.actors {
+                    if actor.name == ctx.char_name {
+                        solo.insert(actor.role.clone(), ctx.action.to_string());
+                    } else {
+                        solo.insert(actor.role.clone(), npc_default.clone());
                     }
-                    solo
-                };
+                }
+                solo
+            };
 
-                Some((commits, interaction_table))
-            });
+            Some((commits, interaction_table))
+        });
 
         if let Some((commits, interaction_table)) = sealed_letter_input {
             let encounter_type = ctx.snapshot.encounter.as_ref()
                 .expect("encounter must be Some — sealed_letter_input only constructed when encounter.as_ref() is Some")
                 .encounter_type.clone();
             match sealed_letter::resolve_sealed_letter_lookup(
-                ctx.snapshot.encounter.as_mut()
-                    .expect("encounter must be Some — invariant: sealed_letter_input requires encounter"),
+                ctx.snapshot.encounter.as_mut().expect(
+                    "encounter must be Some — invariant: sealed_letter_input requires encounter",
+                ),
                 &commits,
                 &interaction_table,
             ) {
@@ -2185,7 +2182,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         let dead_npcs_exist = ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0);
         let in_combat = ctx.in_combat();
         if in_combat {
-            tracing::info!("continuity.skipped — in_combat, creature_smith output is structured");
+            tracing::info!("continuity.skipped — in_combat, narrator combat output is structured");
             WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
                 .field("action", "skipped")
                 .field("reason", "in_combat")

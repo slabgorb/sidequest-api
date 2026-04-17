@@ -22,7 +22,7 @@
 /// a beat_selections array when an encounter is active.
 #[test]
 fn narrator_output_format_includes_beat_selections() {
-    let narrator_src = include_str!("../src/agents/narrator.rs");
+    let narrator_src = include_str!("../../src/agents/narrator.rs");
 
     // The NARRATOR_OUTPUT_ONLY constant (or equivalent) must mention beat_selections
     // so the LLM knows to produce this field in game_patch.
@@ -37,7 +37,7 @@ fn narrator_output_format_includes_beat_selections() {
 /// actor, beat_id, and optional target fields.
 #[test]
 fn narrator_output_format_shows_beat_selection_structure() {
-    let narrator_src = include_str!("../src/agents/narrator.rs");
+    let narrator_src = include_str!("../../src/agents/narrator.rs");
 
     assert!(
         narrator_src.contains("beat_id"),
@@ -58,7 +58,7 @@ fn narrator_output_format_shows_beat_selection_structure() {
 /// by beat_selections.
 #[test]
 fn narrator_output_format_no_combat_initiation_instructions() {
-    let narrator_src = include_str!("../src/agents/narrator.rs");
+    let narrator_src = include_str!("../../src/agents/narrator.rs");
 
     // The NARRATOR_OUTPUT_ONLY constant should no longer contain combat-specific
     // instructions telling the LLM to emit in_combat/hp_changes/turn_order.
@@ -112,7 +112,7 @@ fn narrator_output_format_no_combat_initiation_instructions() {
 /// replaces both CombatPatch and ChasePatch extraction pathways.
 #[test]
 fn orchestrator_no_chase_patch_extraction() {
-    let orchestrator_src = include_str!("../src/orchestrator.rs");
+    let orchestrator_src = include_str!("../../src/orchestrator.rs");
 
     assert!(
         !orchestrator_src.contains("ChasePatch"),
@@ -169,7 +169,7 @@ fn game_patch_with_beat_selections_deserializes() {
 /// This is the handoff point to the dispatch pipeline (apply_beat in 28-5).
 #[test]
 fn action_result_has_beat_selections_field() {
-    let orchestrator_src = include_str!("../src/orchestrator.rs");
+    let orchestrator_src = include_str!("../../src/orchestrator.rs");
 
     // ActionResult struct must have a beat_selections field
     let action_result_start = orchestrator_src
@@ -192,7 +192,7 @@ fn action_result_has_beat_selections_field() {
 /// (not from a separate fenced JSON block like CombatPatch was).
 #[test]
 fn orchestrator_extracts_beat_selections_from_game_patch() {
-    let orchestrator_src = include_str!("../src/orchestrator.rs");
+    let orchestrator_src = include_str!("../../src/orchestrator.rs");
 
     // GamePatchExtraction struct must include beat_selections
     let extraction_start = orchestrator_src
@@ -219,7 +219,7 @@ fn orchestrator_extracts_beat_selections_from_game_patch() {
 /// the separate build_combat_context and build_chase_context methods.
 #[test]
 fn narrator_has_build_encounter_context() {
-    let narrator_src = include_str!("../src/agents/narrator.rs");
+    let narrator_src = include_str!("../../src/agents/narrator.rs");
 
     assert!(
         narrator_src.contains("build_encounter_context"),
@@ -232,7 +232,7 @@ fn narrator_has_build_encounter_context() {
 /// by the unified build_encounter_context.
 #[test]
 fn narrator_no_build_combat_context() {
-    let narrator_src = include_str!("../src/agents/narrator.rs");
+    let narrator_src = include_str!("../../src/agents/narrator.rs");
 
     assert!(
         !narrator_src.contains("fn build_combat_context"),
@@ -245,7 +245,7 @@ fn narrator_no_build_combat_context() {
 /// by the unified build_encounter_context.
 #[test]
 fn narrator_no_build_chase_context() {
-    let narrator_src = include_str!("../src/agents/narrator.rs");
+    let narrator_src = include_str!("../../src/agents/narrator.rs");
 
     assert!(
         !narrator_src.contains("fn build_chase_context"),
@@ -273,7 +273,7 @@ fn narrator_no_build_chase_context() {
 ///      `classify_with_classifier` dispatch helper.
 #[test]
 fn intent_router_no_separate_combat_chase_branches() {
-    let router_src = include_str!("../src/agents/intent_router.rs");
+    let router_src = include_str!("../../src/agents/intent_router.rs");
 
     assert!(
         !router_src.contains("ctx.in_combat"),
@@ -313,7 +313,7 @@ fn intent_router_no_separate_combat_chase_branches() {
 /// is actually engaging the encounter engine (not just winging it).
 #[test]
 fn orchestrator_emits_agent_beat_selection_otel_event() {
-    let orchestrator_src = include_str!("../src/orchestrator.rs");
+    let orchestrator_src = include_str!("../../src/orchestrator.rs");
 
     assert!(
         orchestrator_src.contains("agent_beat_selection"),
@@ -331,7 +331,7 @@ fn orchestrator_emits_agent_beat_selection_otel_event() {
 /// extracted game_patch data (non-test consumer — this is the production wiring).
 #[test]
 fn orchestrator_populates_action_result_beat_selections() {
-    let orchestrator_src = include_str!("../src/orchestrator.rs");
+    let orchestrator_src = include_str!("../../src/orchestrator.rs");
 
     // Find the ActionResult construction in the success path
     // (the `ActionResult { combat_patch, chase_patch, ... }` block around line 923)
@@ -347,7 +347,7 @@ fn orchestrator_populates_action_result_beat_selections() {
 /// replaces the CombatPatch extraction pathway.
 #[test]
 fn no_extract_combat_from_game_patch() {
-    let orchestrator_src = include_str!("../src/orchestrator.rs");
+    let orchestrator_src = include_str!("../../src/orchestrator.rs");
 
     assert!(
         !orchestrator_src.contains("fn extract_combat_from_game_patch"),

@@ -179,7 +179,10 @@ fn game_patch_items_gained_deserializes() {
     let json = r#"{"name": "rusty key", "description": "A small iron key with rust spots", "category": "quest"}"#;
     let item: sidequest_protocol::ItemGained = serde_json::from_str(json).unwrap();
     assert_eq!(item.name.as_str(), "rusty key");
-    assert_eq!(item.description.as_str(), "A small iron key with rust spots");
+    assert_eq!(
+        item.description.as_str(),
+        "A small iron key with rust spots"
+    );
     assert_eq!(item.category, "quest");
 }
 

@@ -275,9 +275,12 @@ fn directive_registered_in_prompt_produces_mandatory_block() {
         "Composed prompt should contain scene directive header. Got: {}",
         composed
     );
+    // Commit 87feb39 demoted directives from MANDATORY/MUST-weave to soft
+    // weave-if-possible language, subordinate to <length-limit>. Assert
+    // against the current weave instruction.
     assert!(
-        composed.contains("MUST"),
-        "Composed prompt should contain MUST-weave language"
+        composed.contains("Weave at least one"),
+        "Composed prompt should contain weave-directive language"
     );
 }
 

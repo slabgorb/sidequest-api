@@ -21,7 +21,6 @@ use sidequest_agents::agents::intent_router::Intent;
 use sidequest_agents::context_builder::ContextBuilder;
 use sidequest_agents::orchestrator::inject_merchant_context;
 use sidequest_agents::prompt_framework::{AttentionZone, SectionCategory};
-use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::disposition::Disposition;
 use sidequest_game::inventory::{Inventory, Item};
 use sidequest_game::npc::{Npc, NpcRegistryEntry};
@@ -57,31 +56,12 @@ fn merchant_npc(name: &str, items: Vec<Item>) -> Npc {
     for item in items {
         inv.add(item, 100).unwrap();
     }
-    Npc {
-        core: CreatureCore {
-            name: NonBlankString::new(name).unwrap(),
-            description: NonBlankString::new("A merchant").unwrap(),
-            personality: NonBlankString::new("Shrewd").unwrap(),
-            level: 1,
-            hp: 10,
-            max_hp: 10,
-            ac: 10,
-            xp: 0,
-            inventory: inv,
-            statuses: vec![],
-        },
-        voice_id: None,
-        disposition: Disposition::new(15), // Slightly friendly
-        location: Some(NonBlankString::new("Market Square").unwrap()),
-        pronouns: Some("he/him".to_string()),
-        appearance: None,
-        age: None,
-        build: None,
-        height: None,
-        distinguishing_features: vec![],
-        ocean: None,
-        belief_state: Default::default(),
-    }
+    let mut npc = Npc::combat_minimal(name, 10, 10, 1);
+    npc.core.inventory = inv;
+    npc.disposition = Disposition::new(15); // Slightly friendly
+    npc.location = Some(NonBlankString::new("Market Square").unwrap());
+    npc.pronouns = Some("he/him".to_string());
+    npc
 }
 
 fn merchant_registry_entry(name: &str, location: &str) -> NpcRegistryEntry {

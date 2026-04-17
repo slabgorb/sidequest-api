@@ -1,7 +1,7 @@
 //! NPC registry updates from structured narrator output + OCEAN personality shifts.
 
-use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_game::{Npc, ResolutionTier};
+use sidequest_genre::{GenreCode, GenreLoader};
 
 use crate::{NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
 

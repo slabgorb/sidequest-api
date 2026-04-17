@@ -61,17 +61,21 @@ pub fn hydrate_fixture(fixture: &Fixture, pack: &GenrePack) -> Result<GameSnapsh
     // The player character is "red" (first actor); the first NPC is "blue".
     // This gives the sealed-letter resolution handler named actors to
     // match against committed maneuvers.
-    encounter.actors.push(sidequest_game::encounter::EncounterActor {
-        name: character.core.name.to_string(),
-        role: "red".to_string(),
-        per_actor_state: std::collections::HashMap::new(),
-    });
-    if let Some(npc) = fixture.npcs.first() {
-        encounter.actors.push(sidequest_game::encounter::EncounterActor {
-            name: npc.name.clone(),
-            role: "blue".to_string(),
+    encounter
+        .actors
+        .push(sidequest_game::encounter::EncounterActor {
+            name: character.core.name.to_string(),
+            role: "red".to_string(),
             per_actor_state: std::collections::HashMap::new(),
         });
+    if let Some(npc) = fixture.npcs.first() {
+        encounter
+            .actors
+            .push(sidequest_game::encounter::EncounterActor {
+                name: npc.name.clone(),
+                role: "blue".to_string(),
+                per_actor_state: std::collections::HashMap::new(),
+            });
     }
 
     let snapshot = GameSnapshot {

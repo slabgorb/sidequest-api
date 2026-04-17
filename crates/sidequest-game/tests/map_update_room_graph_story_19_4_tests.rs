@@ -247,7 +247,10 @@ fn build_room_graph_explored_populates_exits() {
 
     let explored = build_room_graph_explored(&rooms, &discovered, "entrance");
 
-    let corridor = explored.iter().find(|e| e.name.as_str() == "Dark Corridor").unwrap();
+    let corridor = explored
+        .iter()
+        .find(|e| e.name.as_str() == "Dark Corridor")
+        .unwrap();
     assert_eq!(corridor.room_exits.len(), 2, "corridor has 2 exits");
 
     let exit_targets: HashSet<&str> = corridor
@@ -270,7 +273,10 @@ fn build_room_graph_explored_populates_room_metadata() {
 
     let explored = build_room_graph_explored(&rooms, &discovered, "entrance");
 
-    let entrance = explored.iter().find(|e| e.name.as_str() == "Entrance Hall").unwrap();
+    let entrance = explored
+        .iter()
+        .find(|e| e.name.as_str() == "Entrance Hall")
+        .unwrap();
     assert_eq!(entrance.room_type, "entrance");
     assert_eq!(entrance.size, Some((3, 3)));
 
@@ -461,7 +467,10 @@ fn secret_exits_hidden_when_undiscovered() {
     let discovered: HashSet<String> = ["hall", "closet"].iter().map(|s| s.to_string()).collect();
     let explored = build_room_graph_explored(&rooms, &discovered, "hall");
 
-    let hall = explored.iter().find(|e| e.name.as_str() == "Great Hall").unwrap();
+    let hall = explored
+        .iter()
+        .find(|e| e.name.as_str() == "Great Hall")
+        .unwrap();
     // Hall has 2 exits in RoomDef but the secret one is undiscovered
     assert_eq!(
         hall.room_exits.len(),
@@ -499,7 +508,10 @@ fn secret_exits_visible_when_discovered() {
     let discovered: HashSet<String> = ["hall"].iter().map(|s| s.to_string()).collect();
     let explored = build_room_graph_explored(&rooms, &discovered, "hall");
 
-    let hall = explored.iter().find(|e| e.name.as_str() == "Great Hall").unwrap();
+    let hall = explored
+        .iter()
+        .find(|e| e.name.as_str() == "Great Hall")
+        .unwrap();
     assert_eq!(
         hall.room_exits.len(),
         2,

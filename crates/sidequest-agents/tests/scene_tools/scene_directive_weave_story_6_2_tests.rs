@@ -100,9 +100,13 @@ fn must_weave_instruction_is_not_a_suggestion() {
     registry.register_scene_directive("narrator", &directive);
 
     let composed = registry.compose("narrator");
+    // Commit 87feb39 demoted directives from MANDATORY to soft weave-if-possible
+    // language, subordinate to <length-limit>. The block is now a weave instruction,
+    // not a mandatory instruction. Assert the current compelling-but-subordinate
+    // framing: "Weave at least one" carries the non-suggestion force.
     assert!(
-        composed.contains("not suggestions"),
-        "Block should clarify these are not suggestions, got:\n{}",
+        composed.contains("Weave at least one"),
+        "Block should contain directive weave instruction, got:\n{}",
         composed
     );
 }
@@ -447,8 +451,9 @@ fn full_pipeline_directive_through_context_builder() {
         .expect("Non-empty directive should produce rendered text");
 
     // Step 3: Verify the rendered text has required structure
+    // Commit 87feb39 demoted "MUST weave" to "Weave at least one" (soft directive).
     assert!(rendered.contains("[SCENE DIRECTIVES — ACTIVE ELEMENTS]"));
-    assert!(rendered.contains("MUST weave"));
+    assert!(rendered.contains("Weave at least one"));
     assert!(rendered.contains("[Trope Beat]"));
     assert!(rendered.contains("a distant explosion rocks the marketplace"));
     assert!(rendered.contains("[Active Stake]"));

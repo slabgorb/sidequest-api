@@ -1,12 +1,19 @@
-//! Post-narration assembler — merges narrator extraction with preprocessor and tool results.
+//! Post-narration assembler — merges narrator extraction with fallback values and tool results.
 //!
 //! ADR-057: `assemble_turn` is a deterministic function that takes the narrator's
-//! `NarratorExtraction`, preprocessor-produced `ActionRewrite` and `ActionFlags`,
-//! and tool call results (`ToolCallResults`), then assembles a complete `ActionResult`.
+//! `NarratorExtraction`, fallback `ActionRewrite` / `ActionFlags` supplied by the
+//! caller, and tool call results (`ToolCallResults`), then assembles a complete
+//! `ActionResult`.
 //!
-//! **Priority:** Tool call results > Preprocessor results > Narrator extraction.
-//! For action_rewrite/action_flags: preprocessor always wins.
-//! For scene_mood/scene_intent: tool call wins if present, else narrator fallback.
+//! **Priority (split by field):**
+//! - `scene_mood` / `scene_intent` / `visual_scene` / `quest_updates` / `personality_events`
+//!   / `resource_deltas` / `sfx_triggers` / `items_gained` / `tactical_placements`:
+//!   tool call wins if present, else narrator extraction.
+//! - `action_rewrite` / `action_flags`: narrator extraction wins when present, else
+//!   the caller-supplied fallback. In the current production wiring
+//!   (`orchestrator.rs:1128-1129`) the fallback is `ActionRewrite::default()` /
+//!   `ActionFlags::default()`; a `tracing::warn!` fires upstream at
+//!   `orchestrator.rs:1122-1126` when the narrator omits these fields.
 
 use std::collections::HashMap;
 
@@ -54,13 +61,18 @@ pub struct ToolCallResults {
     pub tactical_placements: Option<Vec<crate::tools::tactical_place::TacticalPlaceResult>>,
 }
 
-/// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,
-/// and tool call results.
+/// Assemble a complete `ActionResult` from narrator extraction, caller-supplied
+/// fallback values, and tool call results.
 ///
 /// **Override rules:**
-/// - `action_rewrite` / `action_flags`: preprocessor always wins (Phase 1).
-/// - `scene_mood` / `scene_intent`: tool call wins if present, else narrator fallback (Phase 2).
+/// - `action_rewrite` / `action_flags`: narrator wins when present, else the
+///   `rewrite` / `flags` parameters are used as fallback.
+/// - `scene_mood` / `scene_intent`: tool call wins if present, else narrator fallback.
 /// - All other fields: pass through from narrator extraction.
+///
+/// Every override site emits `tracing::info!(source = "...", "assemble.override.<field>")`
+/// so the GM panel can observe which path won on a per-turn basis (per OTEL
+/// Observability Principle in `sidequest-api/CLAUDE.md`).
 pub fn assemble_turn(
     extraction: NarratorExtraction,
     rewrite: ActionRewrite,
@@ -175,6 +187,28 @@ pub fn assemble_turn(
     }
     let tactical_placements = tool_results.tactical_placements;
 
+    // Source-tagged tracing for action_rewrite / action_flags so the GM panel
+    // can observe which path won on each turn. Mirrors the tool_call override
+    // pattern above (lines 76-83).
+    let action_rewrite_source = if extraction.action_rewrite.is_some() {
+        "narrator"
+    } else {
+        "fallback"
+    };
+    let action_flags_source = if extraction.action_flags.is_some() {
+        "narrator"
+    } else {
+        "fallback"
+    };
+    tracing::info!(
+        source = action_rewrite_source,
+        "assemble.override.action_rewrite"
+    );
+    tracing::info!(
+        source = action_flags_source,
+        "assemble.override.action_flags"
+    );
+
     tracing::info!(
         tool_overrides = override_count,
         narration_len = extraction.prose.len(),
@@ -208,9 +242,13 @@ pub fn assemble_turn(
         lore_established: extraction.lore_established,
         merchant_transactions: extraction.merchant_transactions,
         sfx_triggers,
-        // Preprocessor values always win — narrator's action_rewrite/action_flags are discarded
-        action_rewrite: Some(rewrite),
-        action_flags: Some(flags),
+        // Narrator wins when present (LLM-quality classification). Otherwise the
+        // caller-supplied `rewrite` / `flags` fallbacks are used — currently
+        // `ActionRewrite::default()` / `ActionFlags::default()` per orchestrator.rs:1128-1129.
+        // Source of each field is traced above at `assemble.override.action_rewrite` /
+        // `assemble.override.action_flags`.
+        action_rewrite: Some(extraction.action_rewrite.unwrap_or(rewrite)),
+        action_flags: Some(extraction.action_flags.unwrap_or(flags)),
         prompt_tier: String::new(),
         confrontation: extraction.confrontation,
         location: extraction.location,

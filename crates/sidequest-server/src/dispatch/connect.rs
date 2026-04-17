@@ -263,7 +263,9 @@ pub(crate) async fn dispatch_connect(
                                     location: sidequest_protocol::NonBlankString::new(
                                         &saved.snapshot.location,
                                     )
-                                    .expect("saved snapshot location is non-empty by load invariant"),
+                                    .expect(
+                                        "saved snapshot location is non-empty by load invariant",
+                                    ),
                                     quests: saved.snapshot.quest_log.clone(),
                                     turn_count: saved.snapshot.turn_manager.round().into(),
                                 }),
@@ -287,17 +289,11 @@ pub(crate) async fn dispatch_connect(
                                 let sheet = sidequest_protocol::CharacterSheetDetails {
                                     race: c.race.clone(),
                                     stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
-                                    abilities: c
-                                        .abilities
-                                        .iter()
-                                        .map(|a| a.name.clone())
-                                        .collect(),
+                                    abilities: c.abilities.iter().map(|a| a.name.clone()).collect(),
                                     backstory: c.backstory.clone(),
                                     personality: c.core.personality.clone(),
-                                    pronouns: sidequest_protocol::NonBlankString::new(
-                                        &c.pronouns,
-                                    )
-                                    .ok(),
+                                    pronouns: sidequest_protocol::NonBlankString::new(&c.pronouns)
+                                        .ok(),
                                     equipment: c
                                         .core
                                         .inventory
@@ -365,19 +361,16 @@ pub(crate) async fn dispatch_connect(
                                     category: None,
                                     sort_by: sidequest_protocol::JournalSortOrder::Time,
                                 };
-                                let entries =
-                                    sidequest_game::journal::build_journal_entries(
-                                        &c.known_facts,
-                                        &filter,
-                                    );
+                                let entries = sidequest_game::journal::build_journal_entries(
+                                    &c.known_facts,
+                                    &filter,
+                                );
                                 tracing::info!(
                                     entry_count = entries.len(),
                                     "session_restore.journal_backfill"
                                 );
                                 responses.push(GameMessage::JournalResponse {
-                                    payload: sidequest_protocol::JournalResponsePayload {
-                                        entries,
-                                    },
+                                    payload: sidequest_protocol::JournalResponsePayload { entries },
                                     player_id: player_id.to_string(),
                                 });
                             }
@@ -518,17 +511,11 @@ pub(crate) async fn dispatch_connect(
                                 let sheet = sidequest_protocol::CharacterSheetDetails {
                                     race: c.race.clone(),
                                     stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
-                                    abilities: c
-                                        .abilities
-                                        .iter()
-                                        .map(|a| a.name.clone())
-                                        .collect(),
+                                    abilities: c.abilities.iter().map(|a| a.name.clone()).collect(),
                                     backstory: c.backstory.clone(),
                                     personality: c.core.personality.clone(),
-                                    pronouns: sidequest_protocol::NonBlankString::new(
-                                        &c.pronouns,
-                                    )
-                                    .ok(),
+                                    pronouns: sidequest_protocol::NonBlankString::new(&c.pronouns)
+                                        .ok(),
                                     equipment: c
                                         .core
                                         .inventory
@@ -583,19 +570,16 @@ pub(crate) async fn dispatch_connect(
                                     category: None,
                                     sort_by: sidequest_protocol::JournalSortOrder::Time,
                                 };
-                                let entries =
-                                    sidequest_game::journal::build_journal_entries(
-                                        &c.known_facts,
-                                        &filter,
-                                    );
+                                let entries = sidequest_game::journal::build_journal_entries(
+                                    &c.known_facts,
+                                    &filter,
+                                );
                                 tracing::info!(
                                     entry_count = entries.len(),
                                     "session_restore.journal_backfill"
                                 );
                                 responses.push(GameMessage::JournalResponse {
-                                    payload: sidequest_protocol::JournalResponsePayload {
-                                        entries,
-                                    },
+                                    payload: sidequest_protocol::JournalResponsePayload { entries },
                                     player_id: player_id.to_string(),
                                 });
                             }
@@ -634,9 +618,8 @@ pub(crate) async fn dispatch_connect(
                                         .discovered_regions
                                         .iter()
                                         .filter_map(|name| {
-                                            sidequest_protocol::NonBlankString::new(name)
-                                                .ok()
-                                                .map(|nbs_name| sidequest_protocol::ExploredLocation {
+                                            sidequest_protocol::NonBlankString::new(name).ok().map(
+                                                |nbs_name| sidequest_protocol::ExploredLocation {
                                                     // Region mode has no separate slug — id mirrors name.
                                                     id: name.clone(),
                                                     name: nbs_name,
@@ -647,9 +630,11 @@ pub(crate) async fn dispatch_connect(
                                                     room_exits: vec![],
                                                     room_type: String::new(),
                                                     size: None,
-                                                    is_current_room: name == &saved.snapshot.location,
+                                                    is_current_room: name
+                                                        == &saved.snapshot.location,
                                                     tactical_grid: None,
-                                                })
+                                                },
+                                            )
                                         })
                                         .collect()
                                 }
@@ -683,7 +668,11 @@ pub(crate) async fn dispatch_connect(
                                                 .regions
                                                 .iter()
                                                 .filter_map(|(slug, r)| {
-                                                    let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                                    let name =
+                                                        sidequest_protocol::NonBlankString::new(
+                                                            &r.name,
+                                                        )
+                                                        .ok()?;
                                                     Some((
                                                         slug.clone(),
                                                         sidequest_protocol::CartographyRegion {
@@ -699,7 +688,11 @@ pub(crate) async fn dispatch_connect(
                                                 .routes
                                                 .iter()
                                                 .filter_map(|r| {
-                                                    let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                                    let name =
+                                                        sidequest_protocol::NonBlankString::new(
+                                                            &r.name,
+                                                        )
+                                                        .ok()?;
                                                     Some(sidequest_protocol::CartographyRoute {
                                                         name,
                                                         description: r.description.clone(),
@@ -717,10 +710,11 @@ pub(crate) async fn dispatch_connect(
                                 &explored_locs,
                                 cartography_meta.as_ref(),
                             );
-                            let map_location = sidequest_protocol::NonBlankString::new(
-                                &saved.snapshot.location,
-                            )
-                            .expect("saved snapshot location is non-empty by load invariant");
+                            let map_location =
+                                sidequest_protocol::NonBlankString::new(&saved.snapshot.location)
+                                    .expect(
+                                        "saved snapshot location is non-empty by load invariant",
+                                    );
                             let map_region = sidequest_protocol::NonBlankString::new(
                                 &saved.snapshot.current_region,
                             )
@@ -1288,14 +1282,11 @@ pub(crate) async fn dispatch_character_creation(
     if let Some(action) = payload.action.as_deref() {
         match action {
             "back" => {
-                WatcherEventBuilder::new(
-                    "character_creation",
-                    WatcherEventType::StateTransition,
-                )
-                .field("action", "back")
-                .field("from_scene", b.current_scene_index())
-                .field("player_id", player_id)
-                .send();
+                WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                    .field("action", "back")
+                    .field("from_scene", b.current_scene_index())
+                    .field("player_id", player_id)
+                    .send();
 
                 if let Err(e) = b.go_back() {
                     return vec![error_response(
@@ -1315,14 +1306,11 @@ pub(crate) async fn dispatch_character_creation(
                         )];
                     }
                 };
-                WatcherEventBuilder::new(
-                    "character_creation",
-                    WatcherEventType::StateTransition,
-                )
-                .field("action", "edit")
-                .field("target_step", target_step)
-                .field("player_id", player_id)
-                .send();
+                WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                    .field("action", "edit")
+                    .field("target_step", target_step)
+                    .field("player_id", player_id)
+                    .send();
 
                 if let Err(e) = b.go_to_scene(target_step) {
                     return vec![error_response(
@@ -1518,10 +1506,7 @@ pub(crate) async fn dispatch_character_creation(
                                                 )
                                                 .field(
                                                     "faction",
-                                                    resolved
-                                                        .faction
-                                                        .as_deref()
-                                                        .unwrap_or("none"),
+                                                    resolved.faction.as_deref().unwrap_or("none"),
                                                 )
                                                 .field("genre", genre_slug.as_str())
                                                 .field("world", world_slug.as_str())
@@ -2052,10 +2037,8 @@ pub(crate) async fn dispatch_character_creation(
                                         .map(|i| i.name.as_str().to_string())
                                         .collect(),
                                 }],
-                                location: sidequest_protocol::NonBlankString::new(
-                                    current_location,
-                                )
-                                .expect("current_location is non-empty at session ready"),
+                                location: sidequest_protocol::NonBlankString::new(current_location)
+                                    .expect("current_location is non-empty at session ready"),
                                 quests: quest_log.clone(),
                                 turn_count: turn_manager.interaction(),
                             }),
@@ -2215,7 +2198,11 @@ pub(crate) async fn dispatch_character_creation(
                                                 .regions
                                                 .iter()
                                                 .filter_map(|(slug, r)| {
-                                                    let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                                    let name =
+                                                        sidequest_protocol::NonBlankString::new(
+                                                            &r.name,
+                                                        )
+                                                        .ok()?;
                                                     Some((
                                                         slug.clone(),
                                                         sidequest_protocol::CartographyRegion {
@@ -2231,7 +2218,11 @@ pub(crate) async fn dispatch_character_creation(
                                                 .routes
                                                 .iter()
                                                 .filter_map(|r| {
-                                                    let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                                    let name =
+                                                        sidequest_protocol::NonBlankString::new(
+                                                            &r.name,
+                                                        )
+                                                        .ok()?;
                                                     Some(sidequest_protocol::CartographyRoute {
                                                         name,
                                                         description: r.description.clone(),
@@ -2340,17 +2331,10 @@ pub(crate) async fn dispatch_character_creation(
                             .iter()
                             .map(|(k, v)| (k.clone(), *v))
                             .collect(),
-                        abilities: character
-                            .abilities
-                            .iter()
-                            .map(|a| a.name.clone())
-                            .collect(),
+                        abilities: character.abilities.iter().map(|a| a.name.clone()).collect(),
                         backstory: character.backstory.clone(),
                         personality: character.core.personality.clone(),
-                        pronouns: sidequest_protocol::NonBlankString::new(
-                            &character.pronouns,
-                        )
-                        .ok(),
+                        pronouns: sidequest_protocol::NonBlankString::new(&character.pronouns).ok(),
                         equipment: inventory
                             .carried()
                             .map(|i| {
@@ -2616,9 +2600,10 @@ pub(crate) async fn dispatch_character_creation(
                                     .filter(|pid| pid.as_str() != player_id)
                                     .cloned()
                                     .collect();
-                                let arrival_nbs =
-                                    sidequest_protocol::NonBlankString::new(&arrival_text)
-                                        .expect("arrival_text is constructed non-empty by join flow");
+                                let arrival_nbs = sidequest_protocol::NonBlankString::new(
+                                    &arrival_text,
+                                )
+                                .expect("arrival_text is constructed non-empty by join flow");
                                 for target_pid in &existing_pids {
                                     ss.send_to_player(
                                         GameMessage::Narration {

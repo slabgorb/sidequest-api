@@ -1507,7 +1507,9 @@ pub struct MerchantTransactionExtracted {
     pub merchant: String,
 }
 
-/// Action rewrite from inline preprocessor (narrator/creature_smith JSON block).
+/// Action rewrite from the narrator's `game_patch` JSON block. Three perspective
+/// forms of the player's input: second-person (`you`), third-person with the
+/// character's name (`named`), and a neutral distilled intent label (`intent`).
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct ActionRewrite {
     /// Player-facing rewrite ("you ...").
@@ -1521,7 +1523,9 @@ pub struct ActionRewrite {
     pub intent: String,
 }
 
-/// Relevance flags from inline preprocessor (narrator/creature_smith JSON block).
+/// Relevance flags from the narrator's `game_patch` JSON block. Classifies the
+/// player's action along five advisory axes so downstream subsystems (wish
+/// engine, prompt-zone gating, etc.) can react.
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct ActionFlags {
     /// True if the action is a coercive/power-claim style move.
@@ -1591,7 +1595,20 @@ pub struct NarratorExtraction {
 /// The narrator emits a ```game_patch { ... }``` block every turn containing
 /// footnotes, items, NPCs, mood, etc. This function parses that block and maps
 /// it to `NarratorExtraction`, then strips the fence from the returned prose.
-fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
+///
+/// # Contract
+///
+/// Called from the narrator turn pipeline (orchestrator) and from integration
+/// tests. Parse failures are **non-fatal**: malformed or absent `game_patch`
+/// blocks silently produce default/empty values (`extract_game_patch` logs a
+/// `tracing::warn!` on primary-fence parse failure, then falls through to
+/// `GamePatchExtraction::default()`). Callers must not assume any structured
+/// field is populated — every `Option` field can legitimately be `None`, and
+/// every `Vec` field can legitimately be empty.
+///
+/// The function never returns `Err` and never panics on well-formed UTF-8
+/// input; the `&str` type guarantees that at the call boundary.
+pub fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
     let span = tracing::info_span!("rag.prose_cleanup", raw_len = raw.len());
     let _guard = span.enter();
 

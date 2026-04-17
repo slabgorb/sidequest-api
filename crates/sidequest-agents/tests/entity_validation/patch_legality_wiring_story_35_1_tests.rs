@@ -22,9 +22,7 @@ use tokio::sync::mpsc;
 use serial_test::serial;
 use sidequest_agents::agents::intent_router::Intent;
 use sidequest_agents::turn_record::{run_validator, PatchSummary, TurnRecord};
-use sidequest_game::{
-    CreatureCore, Disposition, GameSnapshot, Inventory, Npc, StateDelta, TurnManager,
-};
+use sidequest_game::{GameSnapshot, Npc, StateDelta, TurnManager};
 use sidequest_protocol::NonBlankString;
 use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
 
@@ -80,31 +78,10 @@ fn mock_state_delta() -> StateDelta {
 }
 
 fn make_npc(name: &str, hp: i32, max_hp: i32, statuses: Vec<String>) -> Npc {
-    Npc {
-        core: CreatureCore {
-            name: NonBlankString::new(name).unwrap(),
-            description: NonBlankString::new("A test NPC").unwrap(),
-            personality: NonBlankString::new("Stoic").unwrap(),
-            level: 3,
-            hp,
-            max_hp,
-            ac: 12,
-            xp: 0,
-            inventory: Inventory::default(),
-            statuses,
-        },
-        voice_id: None,
-        disposition: Disposition::new(0),
-        pronouns: None,
-        appearance: None,
-        age: None,
-        build: None,
-        height: None,
-        distinguishing_features: vec![],
-        location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
-        ocean: None,
-        belief_state: sidequest_game::belief_state::BeliefState::default(),
-    }
+    let mut npc = Npc::combat_minimal(name, hp, max_hp, 3);
+    npc.core.statuses = statuses;
+    npc.location = Some(NonBlankString::new("The Rusty Valve").unwrap());
+    npc
 }
 
 fn make_mock_record(turn_id: u64) -> TurnRecord {

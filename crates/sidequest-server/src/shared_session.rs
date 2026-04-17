@@ -189,11 +189,10 @@ pub fn party_member_from(pid: &str, ps: &PlayerState) -> sidequest_protocol::Par
         .character_name
         .as_deref()
         .and_then(|n| sidequest_protocol::NonBlankString::new(n).ok());
-    let class = sidequest_protocol::NonBlankString::new(&ps.character_class)
-        .unwrap_or_else(|_| {
-            sidequest_protocol::NonBlankString::new("Adventurer")
-                .expect("literal \"Adventurer\" is non-blank")
-        });
+    let class = sidequest_protocol::NonBlankString::new(&ps.character_class).unwrap_or_else(|_| {
+        sidequest_protocol::NonBlankString::new("Adventurer")
+            .expect("literal \"Adventurer\" is non-blank")
+    });
     let current_location = sidequest_protocol::NonBlankString::new(&ps.display_location).ok();
     sidequest_protocol::PartyMember {
         player_id,

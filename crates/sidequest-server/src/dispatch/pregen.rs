@@ -23,21 +23,30 @@ fn select_diverse_pairings(
     let uncommon_count = (count as f64 * 0.3).ceil() as usize;
     let rare_count = count.saturating_sub(common_count + uncommon_count);
 
-    let sample = |list: &[[String; 2]], n: usize, rng: &mut dyn rand::RngCore| -> Vec<(String, String)> {
-        if list.is_empty() {
-            return vec![];
-        }
-        (0..n)
-            .map(|_| {
-                let pair = &list[rng.next_u64() as usize % list.len()];
-                (pair[0].clone(), pair[1].clone())
-            })
-            .collect()
-    };
+    let sample =
+        |list: &[[String; 2]], n: usize, rng: &mut dyn rand::RngCore| -> Vec<(String, String)> {
+            if list.is_empty() {
+                return vec![];
+            }
+            (0..n)
+                .map(|_| {
+                    let pair = &list[rng.next_u64() as usize % list.len()];
+                    (pair[0].clone(), pair[1].clone())
+                })
+                .collect()
+        };
 
     let mut pool = Vec::with_capacity(count);
-    pool.extend(sample(&constraints.valid_pairings.common, common_count, rng));
-    pool.extend(sample(&constraints.valid_pairings.uncommon, uncommon_count, rng));
+    pool.extend(sample(
+        &constraints.valid_pairings.common,
+        common_count,
+        rng,
+    ));
+    pool.extend(sample(
+        &constraints.valid_pairings.uncommon,
+        uncommon_count,
+        rng,
+    ));
     pool.extend(sample(&constraints.valid_pairings.rare, rare_count, rng));
 
     let npc_roles = &constraints.npc_roles_available;
@@ -178,17 +187,18 @@ pub fn seed_manual(state: &AppState, genre: &str, world: &str, manual: &mut Mons
         } else {
             cultures.len() * NPCS_PER_CULTURE
         };
-        let pairings: Option<Vec<(String, String, String)>> = constraints
-            .map(|c| select_diverse_pairings(c, npc_count, &mut rng));
+        let pairings: Option<Vec<(String, String, String)>> =
+            constraints.map(|c| select_diverse_pairings(c, npc_count, &mut rng));
 
         let world_opt = if world.is_empty() { None } else { Some(world) };
 
         if cultures.is_empty() {
             // No cultures found — generate without culture flag
             for i in 0..npc_count {
-                let axes = pairings.as_ref().and_then(|p| p.get(i)).map(|(j, r, n)| {
-                    (j.as_str(), r.as_str(), n.as_str())
-                });
+                let axes = pairings
+                    .as_ref()
+                    .and_then(|p| p.get(i))
+                    .map(|(j, r, n)| (j.as_str(), r.as_str(), n.as_str()));
                 if let Some(data) = generate_npc(
                     namegen_binary,
                     genre_packs_path,
@@ -211,12 +221,11 @@ pub fn seed_manual(state: &AppState, genre: &str, world: &str, manual: &mut Mons
             for (ci, culture) in cultures.iter().enumerate() {
                 for j in 0..NPCS_PER_CULTURE {
                     let pairing_idx = ci * NPCS_PER_CULTURE + j;
-                    let axes = pairings
-                        .as_ref()
-                        .and_then(|p| p.get(pairing_idx))
-                        .map(|(jungian, rpg_role, npc_role)| {
+                    let axes = pairings.as_ref().and_then(|p| p.get(pairing_idx)).map(
+                        |(jungian, rpg_role, npc_role)| {
                             (jungian.as_str(), rpg_role.as_str(), npc_role.as_str())
-                        });
+                        },
+                    );
                     if let Some(data) = generate_npc(
                         namegen_binary,
                         genre_packs_path,

@@ -85,8 +85,9 @@ pub(crate) async fn sync_back_to_shared_session(
             // creates a turn boundary in NarrativeView (PLAYER_ACTION
             // triggers flushChunks on the client side).
             let observer_action_text = format!("{} — {}", ctx.char_name, effective_action);
-            let observer_action_nbs = sidequest_protocol::NonBlankString::new(&observer_action_text)
-                .expect("observer action text composes non-empty char_name + effective_action");
+            let observer_action_nbs =
+                sidequest_protocol::NonBlankString::new(&observer_action_text)
+                    .expect("observer action text composes non-empty char_name + effective_action");
             let observer_action = GameMessage::PlayerAction {
                 payload: sidequest_protocol::PlayerActionPayload {
                     action: observer_action_nbs,

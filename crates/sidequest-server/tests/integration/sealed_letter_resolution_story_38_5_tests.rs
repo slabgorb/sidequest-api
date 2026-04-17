@@ -436,8 +436,7 @@ fn otel_spans_emitted_for_resolution_steps() {
     let events = drain_events(&mut rx);
 
     // Step 1: commits gathered
-    let commit_events =
-        find_encounter_events(&events, "encounter.sealed_letter.commits_gathered");
+    let commit_events = find_encounter_events(&events, "encounter.sealed_letter.commits_gathered");
     assert_eq!(
         commit_events.len(),
         1,
@@ -481,8 +480,7 @@ fn otel_spans_emitted_for_resolution_steps() {
     );
 
     // Step 3: deltas applied
-    let delta_events =
-        find_encounter_events(&events, "encounter.sealed_letter.deltas_applied");
+    let delta_events = find_encounter_events(&events, "encounter.sealed_letter.deltas_applied");
     assert_eq!(
         delta_events.len(),
         1,
@@ -633,8 +631,7 @@ fn missing_cell_emits_otel_warning() {
     let _ = resolve_sealed_letter_lookup(&mut encounter, &commits, table);
 
     let events = drain_events(&mut rx);
-    let warning_events =
-        find_encounter_events(&events, "encounter.sealed_letter.cell_not_found");
+    let warning_events = find_encounter_events(&events, "encounter.sealed_letter.cell_not_found");
     assert_eq!(
         warning_events.len(),
         1,
