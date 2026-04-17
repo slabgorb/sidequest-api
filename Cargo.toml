@@ -13,6 +13,7 @@ members = [
     "crates/sidequest-promptpreview",
     "crates/sidequest-telemetry",
     "crates/sidequest-fixture",
+    "crates/sidequest-genre-layered-derive",
 ]
 resolver = "2"
 
