@@ -19,8 +19,17 @@ fn genre_packs_path() -> PathBuf {
         PathBuf::from(p)
     } else {
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        manifest.join("../../../sidequest-content/genre_packs")
+        manifest
+            .join("../../..")
+            .join("sidequest-content")
+            .join("genre_packs")
     }
+}
+
+/// Fixture directory containing self-contained test packs.
+/// Named subdirectories act as genre codes: base_pack, alt_test_pack.
+fn fixture_packs_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/loader_story_1_4")
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -324,26 +333,30 @@ fn genre_cache_returns_same_arc_for_same_code() {
 
 #[test]
 fn genre_cache_stores_different_packs_for_different_codes() {
-    let search_paths = vec![genre_packs_path()];
+    // Uses self-contained fixture packs (base_pack + alt_test_pack) instead of
+    // sidequest-content/low_fantasy which may not be present. Both fixture packs
+    // are minimal but have distinct names — the assertion verifies distinct Arcs
+    // and distinct identity, which is what this AC tests.
+    let search_paths = vec![fixture_packs_path()];
     let loader = GenreLoader::new(search_paths);
     let cache = GenreCache::new();
 
-    let mw_code = GenreCode::new("mutant_wasteland").unwrap();
-    let lf_code = GenreCode::new("low_fantasy").unwrap();
+    let code_a = GenreCode::new("base_pack").unwrap();
+    let code_b = GenreCode::new("alt_test_pack").unwrap();
 
-    let mw_pack = cache
-        .get_or_load(&mw_code, &loader)
-        .expect("load mutant_wasteland");
-    let lf_pack = cache
-        .get_or_load(&lf_code, &loader)
-        .expect("load low_fantasy");
+    let pack_a = cache
+        .get_or_load(&code_a, &loader)
+        .expect("load base_pack fixture");
+    let pack_b = cache
+        .get_or_load(&code_b, &loader)
+        .expect("load alt_test_pack fixture");
 
     assert!(
-        !Arc::ptr_eq(&mw_pack, &lf_pack),
+        !Arc::ptr_eq(&pack_a, &pack_b),
         "different codes should produce different Arc pointers"
     );
-    assert_eq!(mw_pack.meta.name.as_str(), "Mutant Wasteland");
-    assert_eq!(lf_pack.meta.name.as_str(), "Low Fantasy");
+    assert_eq!(pack_a.meta.name.as_str(), "Base Test Pack");
+    assert_eq!(pack_b.meta.name.as_str(), "Alt Test Pack");
 }
 
 #[test]
@@ -366,10 +379,15 @@ fn genre_cache_propagates_load_error() {
 
 #[test]
 fn genre_loader_loads_three_different_packs() {
-    let search_paths = vec![genre_packs_path()];
+    // Tests that GenreLoader can load multiple distinct packs successfully.
+    // Uses self-contained fixture packs (base_pack, alt_test_pack) plus
+    // mutant_wasteland (the designated spoilable test fixture in sidequest-content)
+    // to satisfy the "three different packs" intent without depending on
+    // sidequest-content/low_fantasy or elemental_harmony.
+    let search_paths = vec![genre_packs_path(), fixture_packs_path()];
     let loader = GenreLoader::new(search_paths);
 
-    for code_str in &["mutant_wasteland", "low_fantasy", "elemental_harmony"] {
+    for code_str in &["mutant_wasteland", "base_pack", "alt_test_pack"] {
         let code = GenreCode::new(code_str).unwrap();
         let pack = loader
             .load(&code)

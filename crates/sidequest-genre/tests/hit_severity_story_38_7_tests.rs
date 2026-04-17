@@ -30,11 +30,20 @@ use std::path::PathBuf;
 // Helpers
 // ══════���════════════════════════════════════════════════════
 
-/// Path to the real `space_opera` dogfight interaction table.
+/// Path to the self-contained dogfight interaction fixture.
+/// Contains hit_severity and damage_increments per story 38-7 ACs.
+/// No dependency on sidequest-content.
 fn dogfight_interactions_path() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest
-        .join("../../../sidequest-content/genre_packs/space_opera/dogfight/interactions_mvp.yaml")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/hit_severity_story_38_7/dogfight/interactions_mvp.yaml")
+}
+
+/// Path to the self-contained dogfight pack fixture used for wiring tests.
+/// Has a rules.yaml with a dogfight confrontation (sealed_letter_lookup) whose
+/// interaction_table _from points into the fixture's own dogfight/ subdirectory.
+fn dogfight_pack_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/hit_severity_story_38_7/dogfight_pack")
 }
 
 /// The three valid hit severity tiers from the paper playtest vocabulary.
@@ -392,15 +401,15 @@ cells:
 
 #[test]
 fn sealed_letter_outcome_includes_hit_severity_and_damage() {
-    // After story 38-7, the SealedLetterOutcome must carry hit_severity
-    // and hull_damage for each actor so downstream consumers (narrator,
-    // OTEL) can reference them. This tests that the struct has the fields
-    // and that they are populated from cell + damage_increments.
+    // Wiring test: verifies that the dogfight confrontation's interaction_table
+    // (loaded via _from pointer from pack rules.yaml) carries hit_severity and
+    // damage_increments so downstream consumers (narrator, OTEL) can reference them.
+    //
+    // Uses a self-contained fixture pack instead of sidequest-content/space_opera
+    // so this test has no cross-repo dependency.
     use sidequest_genre::load_genre_pack;
 
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let space_opera = manifest.join("../../../sidequest-content/genre_packs/space_opera");
-    let pack = load_genre_pack(&space_opera).expect("space_opera loads");
+    let pack = load_genre_pack(&dogfight_pack_path()).expect("dogfight_pack fixture loads");
 
     let dogfight = pack
         .rules

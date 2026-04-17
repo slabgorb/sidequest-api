@@ -1,0 +1,7 @@
+world_name: Test World
+history: "A place built for testing."
+factions:
+  - name: The Test Guild
+    summary: "A testing faction for world lore verification"
+    description: "A guild that exists purely for test verification purposes."
+    disposition: neutral

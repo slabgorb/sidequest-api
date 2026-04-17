@@ -1,0 +1,7 @@
+- id: origins
+  title: "Your Origins"
+  narration: "Where do you come from?"
+  choices:
+    - label: "Village"
+      description: "You grew up in a small settlement."
+      mechanical_effects: {}

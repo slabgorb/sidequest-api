@@ -1,0 +1,4 @@
+name: Base Test Pack
+version: "0.1.0"
+description: "First fixture pack for loader cache tests — distinct identity from alt_test_pack"
+min_sidequest_version: "0.1.0"

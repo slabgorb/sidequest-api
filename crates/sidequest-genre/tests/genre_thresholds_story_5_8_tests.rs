@@ -21,8 +21,17 @@ fn genre_packs_path() -> PathBuf {
         PathBuf::from(p)
     } else {
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        manifest.join("../../../sidequest-content/genre_packs")
+        manifest
+            .join("../../..")
+            .join("sidequest-content")
+            .join("genre_packs")
     }
+}
+
+/// Fixture pack that has no pacing.yaml — drama_thresholds must be None.
+fn no_pacing_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/genre_thresholds_story_5_8/no_pacing_pack")
 }
 
 /// Helper: check if GenrePack has a `drama_thresholds` field via JSON serialization.
@@ -57,21 +66,23 @@ fn genre_pack_has_drama_thresholds_field() {
 
 #[test]
 fn genre_pack_drama_thresholds_is_optional() {
-    // A genre pack without pacing config should load successfully.
-    // The drama_thresholds field should be None.
-    let path = genre_packs_path().join("low_fantasy");
-    if !path.exists() {
-        panic!("low_fantasy genre pack not found at {}", path.display());
-    }
+    // A genre pack without pacing.yaml should load successfully with drama_thresholds: None.
+    // Uses a self-contained fixture instead of sidequest-content/low_fantasy.
+    let path = no_pacing_fixture_path();
+    assert!(
+        path.exists(),
+        "fixture pack not found at {} — fixture must exist",
+        path.display()
+    );
 
-    let pack = load_genre_pack(&path).expect("should load low_fantasy");
+    let pack = load_genre_pack(&path).expect("should load no_pacing fixture pack");
 
     // Check Debug output — drama_thresholds should appear as "None"
     let debug = format!("{:?}", pack);
     assert!(
         debug.contains("drama_thresholds: None"),
-        "low_fantasy should have drama_thresholds: None (no pacing config defined). \
-         Debug output does not contain 'drama_thresholds' — field not yet added to GenrePack.",
+        "pack without pacing.yaml should have drama_thresholds: None. \
+         Debug output does not contain 'drama_thresholds: None' — field not yet added to GenrePack.",
     );
 }
 
@@ -104,15 +115,18 @@ fn genre_pack_loader_populates_thresholds_from_yaml() {
 
 #[test]
 fn genre_pack_without_pacing_falls_back_to_default_thresholds() {
-    let path = genre_packs_path().join("low_fantasy");
-    if !path.exists() {
-        panic!("low_fantasy genre pack not found");
-    }
+    // Uses a self-contained fixture pack (no pacing.yaml) instead of sidequest-content/low_fantasy.
+    // Verifies that packs without pacing.yaml produce drama_thresholds: None.
+    // Consumers use .drama_thresholds.unwrap_or_default() to get engine defaults.
+    let path = no_pacing_fixture_path();
+    assert!(
+        path.exists(),
+        "fixture pack not found at {} — fixture must exist",
+        path.display()
+    );
 
-    let pack = load_genre_pack(&path).expect("should load low_fantasy");
+    let pack = load_genre_pack(&path).expect("should load no_pacing fixture pack");
 
-    // The Debug output should show drama_thresholds: None for packs without pacing.
-    // Consumers use .drama_thresholds.unwrap_or_default() to get defaults.
     let debug = format!("{:?}", pack);
 
     // First, verify the field exists at all
@@ -121,10 +135,10 @@ fn genre_pack_without_pacing_falls_back_to_default_thresholds() {
         "GenrePack must have a drama_thresholds field — not found in Debug output",
     );
 
-    // Then verify it's None for low_fantasy
+    // Then verify it's None for a pack without pacing.yaml
     assert!(
         debug.contains("drama_thresholds: None"),
-        "low_fantasy should have drama_thresholds: None",
+        "pack without pacing.yaml should have drama_thresholds: None",
     );
 }
 

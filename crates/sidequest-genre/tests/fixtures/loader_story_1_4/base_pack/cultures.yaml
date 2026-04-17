@@ -1,0 +1,13 @@
+- name: Common Folk
+  summary: "Plain rural culture with simple naming conventions"
+  description: "Rural folk with Anglo-Saxon naming patterns."
+  slots:
+    given_name:
+      corpora:
+        - corpus: english.txt
+          weight: 1.0
+      lookback: 2
+  person_patterns:
+    - "{given_name}"
+  place_patterns:
+    - "{given_name}ton"

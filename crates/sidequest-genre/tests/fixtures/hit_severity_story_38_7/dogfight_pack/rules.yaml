@@ -1,0 +1,51 @@
+tone: cinematic
+lethality: moderate
+magic_level: none
+stat_generation: point_buy
+point_buy_budget: 27
+ability_score_names:
+  - Physique
+  - Reflex
+  - Intellect
+  - Cunning
+  - Resolve
+  - Influence
+allowed_classes:
+  - Pilot
+  - Officer
+allowed_races:
+  - Spacer
+  - Coreworlder
+class_hp_bases:
+  Pilot: 6
+  Officer: 8
+confrontations:
+  - type: dogfight
+    label: Dogfight
+    category: combat
+    resolution_mode: sealed_letter_lookup
+    metric:
+      name: energy
+      direction: descending
+      starting: 60
+      threshold_low: 0
+    beats:
+      - id: straight
+        label: Throttle Up
+        metric_delta: 5
+        stat_check: Reflex
+      - id: bank
+        label: Break Right
+        metric_delta: -5
+        stat_check: Reflex
+      - id: loop
+        label: Vertical Reversal
+        metric_delta: -30
+        stat_check: Reflex
+      - id: kill_rotation
+        label: Kill Rotation
+        metric_delta: -5
+        stat_check: Reflex
+    interaction_table:
+      _from: dogfight/interactions_mvp.yaml
+    mood: combat

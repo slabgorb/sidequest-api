@@ -1,0 +1,24 @@
+tone: gritty
+lethality: moderate
+magic_level: low
+stat_generation: point_buy
+point_buy_budget: 27
+ability_score_names:
+  - Strength
+  - Dexterity
+  - Constitution
+  - Intelligence
+  - Wisdom
+  - Charisma
+allowed_classes:
+  - Fighter
+  - Rogue
+  - Wizard
+allowed_races:
+  - Human
+  - Elf
+  - Dwarf
+class_hp_bases:
+  Fighter: 10
+  Rogue: 8
+  Wizard: 6
