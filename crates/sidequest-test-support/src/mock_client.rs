@@ -1,7 +1,7 @@
 //! Mock [`ClaudeLike`] for tests — scripted responses + call recording.
 //!
 //! Usage:
-//! ```no_run
+//! ```
 //! use std::sync::Arc;
 //! use sidequest_test_support::{ClaudeLike, MockClaudeClient};
 //!

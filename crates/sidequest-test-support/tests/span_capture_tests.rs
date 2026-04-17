@@ -1,30 +1,29 @@
-//! Story 40-1 RED: SpanCaptureLayer captures OTEL spans/events with a typed
-//! field-query API — no substring matching on stringified log output.
+//! Story 40-1: pins the `SpanCaptureLayer` typed field-query contract.
 //!
-//! These tests fail to compile today because `sidequest_test_support::SpanCaptureLayer`
-//! does not exist. Dev's GREEN phase defines the layer with a queryable handle
-//! that supersedes the four duplicated `SpanCaptureLayer` definitions scattered
-//! across `sidequest-game/tests/telemetry_story_*_tests.rs` et al.
+//! The layer captures tracing spans and events into a cloneable `SpanCapture`
+//! handle. Tests query captured data via typed accessors (`field_str`,
+//! `field_i64`, `field_bool`, `field_f64`) — no substring matching on
+//! stringified log output. Missing fields return `None`, not default values.
 //!
-//! API requirements (derived from Epic 40's "typed query, not substring match"
-//! mandate and the existing duplicate implementations in sidequest-game/tests):
+//! API contract pinned by these tests:
 //! - `SpanCaptureLayer::new() -> (SpanCaptureLayer, SpanCapture)` — the layer
 //!   is installed on a `tracing_subscriber::Registry`; the capture handle is
-//!   cloned into the test body for post-hoc assertions.
+//!   kept in the test body for post-hoc assertions.
 //! - `SpanCapture::spans_by_name(name) -> Vec<CapturedSpan>` — exact-match
-//!   lookup, returns all spans with that metadata name.
+//!   lookup on span metadata name.
 //! - `SpanCapture::events_by_name(name) -> Vec<CapturedEvent>` — exact-match
-//!   lookup on tracing events (the `info!` / `warn!` macros).
-//! - `CapturedSpan::field_str(name) -> Option<String>` — typed field query.
-//! - `CapturedSpan::field_i64(name) -> Option<i64>` — typed field query.
-//! - `CapturedSpan::field_bool(name) -> Option<bool>` — typed field query.
-//! - Same field query API on `CapturedEvent`.
+//!   lookup on event `event_name`/`event` field (the sidequest-api convention),
+//!   falling back to metadata name.
+//! - `SpanCapture` is `Clone + Send + Sync`; cloning shares the underlying
+//!   buffer so helpers can cooperate.
+//! - Events and spans are distinct — an event is never returned by
+//!   `spans_by_name` and vice versa.
 //!
 //! A test that would PASS by substring match alone must FAIL under the typed
 //! API when the wrong field or value is queried. The point is to make bugs
-//! visible, not hide them behind string concatenation.
-
-use std::sync::{Arc, Mutex};
+//! visible, not hide them behind string concatenation — this is Epic 40's
+//! replacement for the four duplicated in-tree `SpanCaptureLayer` structs
+//! still present in `sidequest-game/tests/telemetry_story_*_tests.rs`.
 
 use sidequest_test_support::SpanCaptureLayer;
 use tracing::subscriber::with_default;
@@ -170,8 +169,4 @@ fn span_capture_clone_shares_state() {
         1,
         "cloned capture handle must see the same events"
     );
-
-    // Suppress unused-Mutex warning in case the implementation happens to use
-    // a raw Mutex + clone-on-write (forcing a shared-Arc design).
-    let _: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
 }

@@ -1,18 +1,13 @@
-//! Story 40-1 RED: README.md contains a canonical, compile-tested recipe.
+//! Story 40-1: guards that `README.md` exists, has a ```rust code block
+//! exercising all three APIs (`ClaudeLike`, `SpanCaptureLayer`,
+//! `MockClaudeClient`), and is wired into `lib.rs` as a crate-level doctest.
 //!
-//! Fails today because `crates/sidequest-test-support/README.md` does not
-//! exist. Dev's GREEN phase writes a README with:
-//!
-//! 1. A ```rust doctest-compatible code block demonstrating all three APIs
-//!    (`ClaudeLike`, `SpanCaptureLayer`, `MockClaudeClient`) in a single
-//!    end-to-end wiring test.
-//! 2. A `#![doc = include_str!("../README.md")]` attribute on `src/lib.rs`
-//!    so `cargo test --doc -p sidequest-test-support` runs the example.
-//!
-//! Why not just run `cargo test --doc`? Because a missing README, or a
-//! README without a `rust` fence, produces no doctests — `cargo test --doc`
-//! passes vacuously. We need an active check that the recipe is present AND
-//! exercises all three APIs, not just that no doctests failed.
+//! Why not just rely on `cargo test --doc`? A missing README, or a README
+//! without a `rust` fence, produces zero doctests — `cargo test --doc`
+//! passes vacuously. These structural tests actively check that the recipe
+//! is present AND exercises all three APIs, not just that no doctests
+//! failed. The complementary `cargo test --doc -p sidequest-test-support`
+//! run separately verifies the example compiles and runs.
 
 use std::fs;
 use std::path::PathBuf;

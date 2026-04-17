@@ -1,27 +1,26 @@
-//! Story 40-1 RED: at least one production call site accepts `Arc<dyn ClaudeLike>`.
+//! Story 40-1: pins the wire-first gate — at least one production call site
+//! accepts `Arc<dyn ClaudeLike>`, and the mock actually sees the call.
 //!
-//! This test fails to compile today because no production site exposes the trait
-//! form. Dev's GREEN phase refactors the simplest pub entry point
-//! (`sidequest_agents::preprocessor`) to take `Arc<dyn ClaudeLike>`, proving the
-//! DI pattern works end-to-end.
+//! CLAUDE.md: "a trait with zero non-test consumers is a skeleton, and
+//! skeletons violate wire-first discipline." These tests prove the
+//! sidequest-agents preprocessor is a real non-test consumer, and that error
+//! paths through the DI boundary round-trip cleanly.
 //!
-//! This is the "wiring-first" gate: a trait with zero non-test consumers is a
-//! skeleton, and skeletons violate CLAUDE.md. The test below is the single
-//! non-test consumer required by story 40-1. Subsequent stories (40-2 in
-//! particular) migrate the remaining seven call sites.
+//! # Why `preprocessor::preprocess_action_with_client`?
 //!
-//! # Why preprocessor?
+//! - Its sole LLM dependency is a single `send_with_model` call, which keeps
+//!   the wiring test focused on the trait-object boundary rather than the
+//!   surrounding business logic.
+//! - `preprocess_action` (the original entry point) delegates to
+//!   `preprocess_action_with_client` with a real `ClaudeClient` wrapped in
+//!   `Arc`, so the migration didn't require visibility changes anywhere else.
+//! - The haiku-tier call is deterministic enough that a `MockClaudeClient`
+//!   can return a single scripted JSON string and the function succeeds end
+//!   to end.
 //!
-//! - Its sole dependency on the LLM is a single `send_with_model` call.
-//! - `preprocess_action` is already `pub`, so an analogous
-//!   `preprocess_action_with_client` can be exposed without changing the
-//!   visibility policy of other modules.
-//! - The haiku-tier call is deterministic enough that a MockClaudeClient can
-//!   return a single scripted JSON string and the function succeeds.
-//!
-//! Dev may choose a different production site if that proves cleaner; the
-//! assertion shape stays the same — the point is that some function takes
-//! `Arc<dyn ClaudeLike>`.
+//! Stories 40-2 through 40-6 migrate the remaining seven call sites
+//! (catch_up.rs, server/lib.rs create_claude_client, orchestrator, inventory
+//! extractor, continuity validator, resonator×4) onto the same pattern.
 
 use std::sync::Arc;
 
@@ -173,7 +172,7 @@ fn preprocessor_records_prompt_through_mock() {
     assert_eq!(
         recorded[0].model(),
         "haiku",
-        "preprocessor must use haiku tier per PREPROCESS_TIMEOUT comment"
+        "preprocessor must use haiku tier (HAIKU_MODEL constant in preprocessor.rs)"
     );
     assert!(
         recorded[0].prompt().contains("Rux"),

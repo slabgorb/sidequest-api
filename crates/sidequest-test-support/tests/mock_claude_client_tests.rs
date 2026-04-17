@@ -1,19 +1,26 @@
-//! Story 40-1 RED: MockClaudeClient records inputs, returns scripted outputs,
-//! and implements `ClaudeLike`.
+//! Story 40-1: pins the `MockClaudeClient` scripted-response and call-recording
+//! contract, plus the canonical `ClaudeLike` re-export path.
 //!
-//! These tests fail to compile today because `sidequest_test_support::MockClaudeClient`
-//! does not exist. Dev's GREEN phase defines the mock so tests can substitute
-//! it for a real `ClaudeClient` wherever production takes `Arc<dyn ClaudeLike>`.
+//! The mock is the test-side half of Epic 40's DI pattern: production sites
+//! take `Arc<dyn ClaudeLike>`, tests substitute a `MockClaudeClient` that
+//! returns scripted responses and records every invocation for post-hoc
+//! assertion.
 //!
-//! API requirements:
-//! - `MockClaudeClient::new()` — empty mock, returns `ClaudeClientError::EmptyResponse`
-//!   on any unscripted call (fails loudly — no silent fallbacks per CLAUDE.md).
-//! - `MockClaudeClient::respond_with(&mut self, text)` — scripts the next response.
-//! - `MockClaudeClient::respond_with_error(&mut self, err)` — scripts the next error.
-//! - `MockClaudeClient::recorded_prompts(&self) -> Vec<RecordedCall>` — returns every
-//!   (prompt, model, session_id, system_prompt, allowed_tools, env_vars) the mock was
-//!   invoked with, in call order.
-//! - `RecordedCall::prompt() -> &str`, `.model() -> &str`, `.session_id() -> Option<&str>`, etc.
+//! API contract pinned by these tests:
+//! - `MockClaudeClient::new()` — empty mock. Unscripted calls return
+//!   `ClaudeClientError::EmptyResponse` (fails loudly — no silent fallbacks per
+//!   CLAUDE.md).
+//! - `MockClaudeClient::respond_with(&mut self, text)` — queues the next `Ok`
+//!   response; FIFO order.
+//! - `MockClaudeClient::respond_with_error(&mut self, err)` — queues the next
+//!   `Err`.
+//! - `MockClaudeClient::recorded_calls(&self) -> Vec<RecordedCall>` — returns
+//!   every invocation (prompt, model, session_id, system_prompt, allowed_tools,
+//!   env_vars) in call order. Available on `&self` so the mock can be queried
+//!   through `Arc<dyn ClaudeLike>`.
+//! - `RecordedCall::prompt() -> &str`, `.model() -> &str`,
+//!   `.session_id() -> Option<&str>`, `.system_prompt() -> Option<&str>`,
+//!   `.allowed_tools() -> &[String]`, `.env_vars() -> &HashMap<String, String>`.
 
 use sidequest_agents::client::{ClaudeClientError, ClaudeLike as AgentsClaudeLike};
 // Second import keeps the test honest even if someone re-exports under a
@@ -36,9 +43,10 @@ fn unscripted_call_returns_error_not_default() {
     // A mock that returns `Ok("")` on an unscripted call would hide test bugs.
     let mock = MockClaudeClient::new();
     let result = mock.send_with_model("anything", "haiku");
-    assert!(
-        matches!(result, Err(ClaudeClientError::EmptyResponse)),
-        "unscripted mock call must return an explicit error, not Ok(empty) or default: got {result:?}"
+    assert_eq!(
+        result,
+        Err(ClaudeClientError::EmptyResponse),
+        "unscripted mock call must return an explicit error, not Ok(empty) or default"
     );
 }
 
@@ -60,7 +68,7 @@ fn scripted_error_round_trips() {
     mock.respond_with_error(ClaudeClientError::EmptyResponse);
 
     let result = mock.send_with_model("prompt", "haiku");
-    assert!(matches!(result, Err(ClaudeClientError::EmptyResponse)));
+    assert_eq!(result, Err(ClaudeClientError::EmptyResponse));
 }
 
 #[test]

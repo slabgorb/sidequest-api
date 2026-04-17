@@ -1,18 +1,16 @@
-//! Story 40-1 RED: ClaudeLike trait exists and covers production send methods.
+//! Story 40-1: pins the `ClaudeLike` object-safety contract and verifies both
+//! `ClaudeClient` and `MockClaudeClient` implement it.
 //!
-//! These tests fail to compile today because `sidequest_test_support::ClaudeLike`
-//! does not exist. Dev's GREEN phase defines the trait so that
-//! `sidequest_agents::client::ClaudeClient` and `MockClaudeClient` both
-//! implement it, allowing `Arc<dyn ClaudeLike>` to be substituted for
-//! concrete `ClaudeClient` at production sites.
-//!
-//! Trait surface requirements (derived from SM Assessment ACs and
-//! `sidequest_agents::client::ClaudeClient`):
+//! The trait surface (defined in `sidequest_agents::client`):
 //! - `send_with_model(prompt: &str, model: &str) -> Result<ClaudeResponse, ClaudeClientError>`
 //! - `send_with_session(prompt, model, session_id, system_prompt, allowed_tools, env_vars)
 //!    -> Result<ClaudeResponse, ClaudeClientError>`
 //!
-//! The trait must be object-safe so `Arc<dyn ClaudeLike>` compiles.
+//! Object safety is load-bearing: production sites take `Arc<dyn ClaudeLike>`
+//! so tests can substitute a `MockClaudeClient` without spawning a real Claude
+//! CLI subprocess. Any change that breaks object safety (adds generics,
+//! returns `Self`, takes `self` by value) will fail these tests at compile
+//! time.
 
 use std::sync::Arc;
 

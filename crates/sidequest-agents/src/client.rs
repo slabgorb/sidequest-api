@@ -12,7 +12,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_COMMAND: &str = "claude";
 
 /// Errors from Claude CLI subprocess invocations.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ClaudeClientError {
     /// The subprocess exceeded the configured timeout.
@@ -50,7 +50,7 @@ impl std::fmt::Display for ClaudeClientError {
 impl std::error::Error for ClaudeClientError {}
 
 /// Response from a Claude CLI invocation, including token usage telemetry.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaudeResponse {
     /// The text content of the response.
     pub text: String,

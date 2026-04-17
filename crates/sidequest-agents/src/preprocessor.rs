@@ -1,11 +1,13 @@
 //! Action Preprocessor — STT cleanup before player input reaches agents.
 //!
-//! Calls a haiku-tier LLM via ClaudeClient to clean speech-to-text disfluencies
-//! (uh, um, like, you know, false starts, repetitions) and rewrite player input
-//! into three perspectives: second-person, named third-person, and neutral intent.
+//! Calls a haiku-tier LLM via an injected [`ClaudeLike`](crate::client::ClaudeLike)
+//! client to clean speech-to-text disfluencies (uh, um, like, you know, false
+//! starts, repetitions) and rewrite player input into three perspectives:
+//! second-person, named third-person, and neutral intent.
 //!
-//! On LLM failure or timeout, falls back to mechanical string manipulation so
-//! the game loop never blocks on preprocessing.
+//! On LLM failure or timeout, returns `Err(PreprocessError::LlmFailed)` — no
+//! silent fallbacks per CLAUDE.md. The dispatch layer decides whether to retry,
+//! surface the error, or skip the turn.
 
 use std::sync::Arc;
 use std::time::Duration;
