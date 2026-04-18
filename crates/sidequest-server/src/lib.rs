@@ -1627,6 +1627,25 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         let mut session_rx: Option<broadcast::Receiver<crate::shared_session::TargetedMessage>> =
             None;
 
+        // Story 37-20: periodic retry tick for pending dice requests whose
+        // DiceThrow never came back (lost WebSocket frame, dropped during
+        // reconnect). Every `DICE_RETRY_CHECK_INTERVAL`, scan the shared
+        // session for requests older than `DICE_REQUEST_TIMEOUT` and
+        // re-broadcast them with the SAME `request_id`. The chokepoint
+        // (`insert_pending_dice_request`) preserves issued_at on re-insert,
+        // so each surfaced request keeps aging until the client finally
+        // responds. Clients dedupe on request_id (InlineDiceTray), so the
+        // per-writer tick is safe under N connections.
+        const DICE_RETRY_CHECK_INTERVAL: std::time::Duration =
+            std::time::Duration::from_secs(5);
+        const DICE_REQUEST_TIMEOUT: std::time::Duration =
+            std::time::Duration::from_secs(30);
+        let mut dice_retry_ticker = tokio::time::interval(DICE_RETRY_CHECK_INTERVAL);
+        // First tick fires immediately; skip it so we don't retry at t=0.
+        dice_retry_ticker
+            .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        dice_retry_ticker.tick().await;
+
         loop {
             // Lazily subscribe to session broadcast if we don't have a receiver yet.
             // Uses lock().await (not try_lock) to guarantee subscription succeeds.
@@ -1710,6 +1729,26 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         };
                         if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                             break;
+                        }
+                    }
+                }
+                // Story 37-20: retry tick. Wakes every DICE_RETRY_CHECK_INTERVAL,
+                // surfaces requests older than DICE_REQUEST_TIMEOUT, re-broadcasts
+                // them (same request_id), and emits `dice_request.recovery` OTEL.
+                _ = dice_retry_ticker.tick() => {
+                    let guard = shared_session_for_writer.lock().await;
+                    if let Some(ref ss_arc) = *guard {
+                        let ss = ss_arc.lock().await;
+                        let expired = ss.expired_pending_dice_requests(
+                            std::time::Instant::now(),
+                            DICE_REQUEST_TIMEOUT,
+                        );
+                        for req in expired {
+                            emit_dice_request_recovery(&req);
+                            ss.broadcast(GameMessage::DiceRequest {
+                                player_id: "server".to_string(),
+                                payload: req,
+                            });
                         }
                     }
                 }
