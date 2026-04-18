@@ -240,27 +240,50 @@ pub struct CharacterBuilder {
     equipment_tables: Option<EquipmentTables>,
 }
 
-/// Return the first `{...}` substring whose key is not one of the known
-/// interpolator tokens (`{name}`, `{class}`, `{race}`).
+/// Return every `{...}` substring in `rendered` whose key is not one of
+/// the known interpolator tokens (`{name}`, `{class}`, `{race}`).
 ///
 /// Used by `CharacterBuilder::interpolate_scene_narration` to surface
-/// author-typo'd or unsupported placeholder keys via an OTEL Warn event
-/// rather than letting them leak silently to the client.
-pub(crate) fn find_unrecognized_token(rendered: &str) -> Option<String> {
-    // Scan for a `{` and its matching `}` on the same pass. A malformed
-    // token (unclosed brace, nested braces) is itself a problem worth
-    // reporting — we report the first brace-bounded substring we find,
-    // or the unclosed suffix if no `}` follows.
-    let start = rendered.find('{')?;
-    let end_rel = rendered[start + 1..].find('}');
-    let token_slice = match end_rel {
-        Some(e) => &rendered[start..start + 1 + e + 1], // includes closing `}`
-        None => &rendered[start..],                     // unclosed — report as-is
-    };
-    match token_slice {
-        "{name}" | "{class}" | "{race}" => None,
-        _ => Some(token_slice.to_string()),
+/// author-typo'd or unsupported placeholder keys via one OTEL Warn event
+/// per offending token. Returning only the first match would let a second
+/// typo in the same narration leak silently to the client; this scanner
+/// is exhaustive by contract.
+///
+/// The returned slices borrow from `rendered` to avoid an allocation on
+/// what is by construction a cold Warn path.
+pub(crate) fn find_unrecognized_tokens(rendered: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let bytes = rendered.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'{' {
+            i += 1;
+            continue;
+        }
+        // Scan forward from `i+1` for the matching `}`. Operating on byte
+        // indices is safe here because `{` and `}` are single-byte ASCII
+        // and any multi-byte UTF-8 continuation byte has its high bit set,
+        // so we cannot land inside a codepoint by searching for these two
+        // literal bytes.
+        let end_rel = rendered[i + 1..].find('}');
+        let (token_end, next_i) = match end_rel {
+            Some(e) => {
+                // Include closing `}`, resume scanning just past it.
+                let end = i + 1 + e + 1;
+                (end, end)
+            }
+            None => {
+                // Unclosed — report the rest of the string and stop.
+                (rendered.len(), rendered.len())
+            }
+        };
+        let token = &rendered[i..token_end];
+        if !matches!(token, "{name}" | "{class}" | "{race}") {
+            out.push(token);
+        }
+        i = next_i;
     }
+    out
 }
 
 impl CharacterBuilder {
@@ -566,14 +589,14 @@ impl CharacterBuilder {
         // Any `{...}` still present in the rendered output is either a token
         // the author mistyped (`{nmae}`) or a key this interpolator doesn't
         // know about (`{origin}`, `{faction}`). Either way the token will
-        // leak to the client literally — so surface it to the GM panel as a
-        // Warn event instead of failing silently (CLAUDE.md "No Silent
-        // Fallbacks"). The event names the offending substring so a GM can
-        // pair it with the genre pack that shipped it.
-        if let Some(unrecognized) = find_unrecognized_token(&rendered) {
+        // leak to the client literally — so fire one Warn event per
+        // offending token instead of failing silently (CLAUDE.md "No Silent
+        // Fallbacks"). Per-token emission means a narration with multiple
+        // typos surfaces all of them, not just the leftmost.
+        for unrecognized in find_unrecognized_tokens(&rendered) {
             WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
                 .field("action", "scene_narration_unrecognized_placeholder")
-                .field("token", unrecognized.as_str())
+                .field("token", unrecognized)
                 .severity(Severity::Warn)
                 .send();
         }

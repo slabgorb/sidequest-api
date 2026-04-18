@@ -17,7 +17,6 @@
 //!   and carries the correct resolved / missing fields.
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{CharCreationChoice, CharCreationScene, MechanicalEffects, RulesConfig};
@@ -326,10 +325,6 @@ async fn unrecognized_token_passes_through_and_fires_warn_event() {
         CharCreationScene {
             id: "typo".to_string(),
             title: "Typo".to_string(),
-            // `{nmae}` is an author typo; `{origin}` is an unsupported key.
-            // The rendered output keeps both literal (scope decision: the
-            // interpolator's contract is the three known keys only), but a
-            // Warn WatcherEvent must fire so the GM panel surfaces the typo.
             narration: "Hello {nmae} from {origin}.".to_string(),
             choices: vec![CharCreationChoice {
                 label: "Continue".to_string(),
@@ -349,41 +344,46 @@ async fn unrecognized_token_passes_through_and_fires_warn_event() {
     let msg = builder.to_scene_message("player-1");
     let prompt = extract_prompt(&msg);
 
-    // Passthrough behavior: unrecognized tokens reach the client literally.
+    // Passthrough: unrecognized tokens reach the client literally.
     assert_eq!(prompt, "Hello {nmae} from {origin}.");
 
-    // Warn-event behavior: at least one unrecognized_placeholder event must
-    // have fired, naming one of the offending tokens.
+    // Per-token emission: BOTH unrecognized tokens must fire a Warn event.
+    // A first-only scan would satisfy the old test but lose the second typo;
+    // asserting both events is what locks the multi-token contract.
     let events = drain_events(&mut rx);
-    let warn = events
+    let warns: Vec<&WatcherEvent> = events
         .iter()
-        .find(|ev| {
+        .filter(|ev| {
             ev.component == "chargen"
                 && ev.fields.get("action").and_then(|v| v.as_str())
                     == Some("scene_narration_unrecognized_placeholder")
         })
-        .unwrap_or_else(|| {
-            panic!(
-                "expected a scene_narration_unrecognized_placeholder event, got {} events: {:?}",
-                events.len(),
-                events
-                    .iter()
-                    .map(|e| e.fields.get("action").and_then(|v| v.as_str()))
-                    .collect::<Vec<_>>()
-            )
-        });
+        .collect();
+
+    // Every warn must be Warn severity and carry a `token` field.
+    for warn in &warns {
+        assert!(
+            matches!(warn.severity, Severity::Warn),
+            "unrecognized-token event must be Warn severity"
+        );
+    }
+    let tokens: Vec<&str> = warns
+        .iter()
+        .map(|w| {
+            w.fields
+                .get("token")
+                .and_then(|v| v.as_str())
+                .expect("token field present")
+        })
+        .collect();
+
     assert!(
-        matches!(warn.severity, Severity::Warn),
-        "unrecognized-token event must be Warn severity"
+        tokens.contains(&"{nmae}"),
+        "first typo '{{nmae}}' must fire a Warn event, got tokens: {tokens:?}"
     );
-    let token = warn
-        .fields
-        .get("token")
-        .and_then(|v| v.as_str())
-        .expect("token field present");
     assert!(
-        token == "{nmae}" || token == "{origin}",
-        "token should be one of the two unrecognized braces, got {token:?}"
+        tokens.contains(&"{origin}"),
+        "second typo '{{origin}}' must fire a Warn event, got tokens: {tokens:?}"
     );
 }
 
@@ -442,14 +442,13 @@ async fn interpolation_emits_state_transition_event() {
     );
 }
 
-/// Drain all currently available events from the broadcast receiver without
-/// blocking. Events are consumed up to a short deadline so tests don't hang
-/// if the channel has buffered events from earlier tests.
+/// Drain every currently-buffered event from the broadcast receiver.
+///
+/// `broadcast::Sender::send` is synchronous and returns after the event is
+/// in the ring buffer, so by the time the test's call to the code-under-test
+/// returns, every event it emitted is already visible to `try_recv`. No
+/// sleep is needed — polling stops at the first `Empty`.
 fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<WatcherEvent> {
-    // Give the sender a brief window to publish — broadcast send is sync but
-    // the receiver's internal buffer is drained by try_recv. A small sleep
-    // avoids flakiness when the test and the emit race on a cold cache.
-    std::thread::sleep(Duration::from_millis(10));
     let mut out = Vec::new();
     loop {
         match rx.try_recv() {
