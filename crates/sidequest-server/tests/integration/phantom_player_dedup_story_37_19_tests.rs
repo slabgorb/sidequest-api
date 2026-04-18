@@ -171,8 +171,7 @@ fn player_count_after_solo_reconnect_cannot_trigger_barrier_auto_promotion() {
     let mut ss = fresh_session();
     let setup = ss.insert_player_dedup_by_name("old", PlayerState::new("Alice".to_string()));
     assert_eq!(setup, None, "first insert cannot report a removal");
-    let reconnect =
-        ss.insert_player_dedup_by_name("new", PlayerState::new("Alice".to_string()));
+    let reconnect = ss.insert_player_dedup_by_name("new", PlayerState::new("Alice".to_string()));
     assert_eq!(
         reconnect.as_deref(),
         Some("old"),
@@ -404,14 +403,16 @@ fn dedup_plus_reconcile_collapses_downstream_rosters_end_to_end() {
     // Install Alice under pid "old-pid".
     let removed_initial =
         ss.insert_player_dedup_by_name("old-pid", PlayerState::new("Alice".to_string()));
-    assert_eq!(removed_initial, None, "first insert never reports a removal");
+    assert_eq!(
+        removed_initial, None,
+        "first insert never reports a removal"
+    );
 
     // Install a TurnBarrier expecting "old-pid", and a perception filter
     // keyed by "old-pid". In production these are populated by the
     // multiplayer session / blinded-character paths respectively.
-    let mp_session = sidequest_game::multiplayer::MultiplayerSession::new(
-        std::collections::HashMap::new(),
-    );
+    let mp_session =
+        sidequest_game::multiplayer::MultiplayerSession::new(std::collections::HashMap::new());
     ss.turn_barrier = Some(TurnBarrier::new(
         mp_session,
         sidequest_game::barrier::TurnBarrierConfig::default(),

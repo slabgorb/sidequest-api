@@ -2481,9 +2481,7 @@ async fn dispatch_message(
                     // perception_filters, and pending_dice_requests still reference
                     // a pid that no longer exists in `players`, reproducing the
                     // playtest-2026-04-12 deadlock one subsystem up.
-                    if let Some(old_pid) =
-                        ss_guard.insert_player_dedup_by_name(player_id, ps)
-                    {
+                    if let Some(old_pid) = ss_guard.insert_player_dedup_by_name(player_id, ps) {
                         ss_guard.reconcile_removed_player(&old_pid);
                     }
 
