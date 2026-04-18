@@ -287,7 +287,14 @@ pub struct SharedGameSession {
     pub pending_replay_beat_id: Option<String>,
 
     // --- Per-player state ---
-    pub players: HashMap<String, PlayerState>,
+    //
+    // `pub(crate)` — not `pub`. This field carries the single-entry-per-
+    // `player_name` invariant enforced by [`Self::insert_player_dedup_by_name`].
+    // External (integration-test) code can't touch this directly; it reads
+    // membership through [`Self::contains_player`]. Rule #9 of
+    // `lang-review/rust.md` — fields carrying invariants must not be
+    // mutable from outside the module.
+    pub(crate) players: HashMap<String, PlayerState>,
 
     // --- Session-scoped broadcast (narration to all members) ---
     pub session_tx: broadcast::Sender<TargetedMessage>,
@@ -338,16 +345,22 @@ impl SharedGameSession {
     /// Insert a `PlayerState` under `new_pid`, deduplicating by `player_name`.
     ///
     /// If an existing entry has the same `player_name` but a different
-    /// `player_id`, that entry is removed before the insert. Its
-    /// `player_id` is returned so the caller can keep external rosters
-    /// (turn barrier, perception filters, dice requests) in sync.
+    /// `player_id`, that entry is removed before the insert and its old
+    /// `player_id` is returned. Callers **must** feed that pid through
+    /// [`Self::reconcile_removed_player`] (or equivalent cleanup) so the
+    /// `turn_barrier`, `perception_filters`, and `pending_dice_requests`
+    /// rosters do not silently keep dangling references to a pid that no
+    /// longer exists in `players`. Half-reconciled state here is what
+    /// wedged the turn barrier in playtest 2026-04-12 (story 37-19).
     ///
-    /// This is the single chokepoint for player insertion. Direct calls
-    /// to `self.players.insert(...)` bypass reconnect dedup and can
-    /// introduce a phantom duplicate entry — the failure mode that
-    /// wedged multiplayer session resume in playtest 2026-04-12 (see
-    /// story 37-19). A source-level wiring test forbids raw
-    /// `players.insert(...)` outside this module.
+    /// This is the single chokepoint for external player insertion. The
+    /// wiring test at
+    /// `tests/integration/phantom_player_dedup_story_37_19_tests.rs`
+    /// (AC-8) forbids any direct `.players.insert(...)` calls on `ss` or
+    /// `ss_guard` elsewhere in `sidequest-server/src/`.
+    #[must_use = "a phantom player_id was removed — call reconcile_removed_player(old_pid) to \
+                  evict it from turn_barrier / perception_filters / pending_dice_requests, \
+                  or the playtest-2026-04-12 deadlock reappears one subsystem up"]
     pub fn insert_player_dedup_by_name(
         &mut self,
         new_pid: &str,
@@ -362,6 +375,12 @@ impl SharedGameSession {
 
         if let Some(ref old) = old_pid {
             self.players.remove(old);
+            tracing::warn!(
+                old_player_id = %old,
+                new_player_id = %new_pid,
+                player_name = %name,
+                "phantom player removed on reconnect — caller must call reconcile_removed_player"
+            );
             crate::WatcherEventBuilder::new(
                 "multiplayer",
                 crate::WatcherEventType::StateTransition,
@@ -375,6 +394,73 @@ impl SharedGameSession {
 
         self.players.insert(new_pid.to_string(), ps);
         old_pid
+    }
+
+    /// Evict a just-removed `player_id` from every downstream roster keyed
+    /// on it: the `TurnBarrier`, the per-player `perception_filters` map,
+    /// and any `pending_dice_requests` whose `rolling_player_id` matched.
+    ///
+    /// This is the second half of the dedup chokepoint contract (see
+    /// [`Self::insert_player_dedup_by_name`]). Call it with the `Option`
+    /// returned by that method whenever it is `Some(old_pid)`. Without
+    /// this reconciliation the turn barrier keeps a stale slot under the
+    /// old pid, which reintroduces the playtest-2026-04-12 deadlock
+    /// one subsystem up — phantom-free `players` but phantom-present
+    /// barrier roster.
+    pub fn reconcile_removed_player(&mut self, old_pid: &str) {
+        let mut reconciled_any = false;
+
+        if let Some(ref barrier) = self.turn_barrier {
+            // `remove_player` returns Err if the pid was never in the roster;
+            // that's fine (the player may not have been added to this barrier
+            // yet), we just don't count it as a reconciliation hit.
+            if barrier.remove_player(old_pid).is_ok() {
+                reconciled_any = true;
+            }
+        }
+
+        if self.perception_filters.remove(old_pid).is_some() {
+            reconciled_any = true;
+        }
+
+        let before = self.pending_dice_requests.len();
+        self.pending_dice_requests
+            .retain(|_request_id, payload| payload.rolling_player_id != old_pid);
+        let pending_dice_removed = before - self.pending_dice_requests.len();
+        if pending_dice_removed > 0 {
+            reconciled_any = true;
+        }
+
+        if reconciled_any {
+            tracing::info!(
+                old_player_id = %old_pid,
+                pending_dice_removed = pending_dice_removed,
+                "reconcile_removed_player — evicted stale pid from downstream rosters"
+            );
+            crate::WatcherEventBuilder::new(
+                "multiplayer",
+                crate::WatcherEventType::StateTransition,
+            )
+            .field("event", "phantom_player_reconciled")
+            .field("old_player_id", old_pid)
+            .field("pending_dice_removed", pending_dice_removed as i64)
+            .send();
+        }
+    }
+
+    /// Read-only accessor for external (integration-test) code that needs
+    /// to assert on player membership without being able to mutate the
+    /// `players` map. The field itself is `pub(crate)` to structurally
+    /// enforce the dedup-chokepoint invariant (rule #9 — fields carrying
+    /// invariants must not be writable from outside the module).
+    pub fn contains_player(&self, player_id: &str) -> bool {
+        self.players.contains_key(player_id)
+    }
+
+    /// Read-only accessor for per-player filter presence — mirrors
+    /// [`Self::contains_player`] for the perception_filters roster.
+    pub fn has_perception_filter(&self, player_id: &str) -> bool {
+        self.perception_filters.contains_key(player_id)
     }
 
     /// Subscribe to the session broadcast channel.

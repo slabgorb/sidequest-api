@@ -41,6 +41,8 @@
 //! chokepoint, route both sites through it, and watch these tests go
 //! green.
 
+use sidequest_game::barrier::TurnBarrier;
+use sidequest_game::perception::PerceptionFilter;
 use sidequest_server::shared_session::{PlayerState, SharedGameSession};
 
 fn fresh_session() -> SharedGameSession {
@@ -83,11 +85,11 @@ fn reconnect_same_name_new_pid_collapses_to_single_entry() {
         "after same-name reconnect, player_count MUST stay at 1 — phantom dup is the bug"
     );
     assert!(
-        ss.players.contains_key("new-pid"),
+        ss.contains_player("new-pid"),
         "new player_id must be present after dedup"
     );
     assert!(
-        !ss.players.contains_key("old-pid"),
+        !ss.contains_player("old-pid"),
         "old player_id must be removed after dedup — this is what playtest 2026-04-12 broke"
     );
 }
@@ -98,16 +100,25 @@ fn reconnect_same_name_new_pid_collapses_to_single_entry() {
 fn two_different_names_coexist_after_dedup_insert() {
     let mut ss = fresh_session();
 
-    ss.insert_player_dedup_by_name("pid-a", PlayerState::new("Alice".to_string()));
-    ss.insert_player_dedup_by_name("pid-b", PlayerState::new("Bob".to_string()));
+    let removed_a = ss.insert_player_dedup_by_name("pid-a", PlayerState::new("Alice".to_string()));
+    let removed_b = ss.insert_player_dedup_by_name("pid-b", PlayerState::new("Bob".to_string()));
 
+    assert_eq!(
+        removed_a, None,
+        "distinct-name insert must not report a removal"
+    );
+    assert_eq!(
+        removed_b, None,
+        "distinct-name insert must not report a removal — a bug that evicts \
+         Alice when inserting Bob would slip past a count-only assertion"
+    );
     assert_eq!(
         ss.player_count(),
         2,
         "two real players with distinct names must coexist"
     );
-    assert!(ss.players.contains_key("pid-a"));
-    assert!(ss.players.contains_key("pid-b"));
+    assert!(ss.contains_player("pid-a"));
+    assert!(ss.contains_player("pid-b"));
 }
 
 /// AC-3: Re-insert under the SAME player_id (idempotent update) is a
@@ -118,7 +129,10 @@ fn two_different_names_coexist_after_dedup_insert() {
 fn reinsert_same_pid_same_name_is_idempotent() {
     let mut ss = fresh_session();
 
-    ss.insert_player_dedup_by_name("pid-a", PlayerState::new("Alice".to_string()));
+    let removed_first =
+        ss.insert_player_dedup_by_name("pid-a", PlayerState::new("Alice".to_string()));
+    assert_eq!(removed_first, None, "first insert cannot report a removal");
+
     let removed = ss.insert_player_dedup_by_name("pid-a", PlayerState::new("Alice".to_string()));
 
     assert_eq!(
@@ -135,7 +149,8 @@ fn reinsert_same_pid_same_name_is_idempotent() {
 #[test]
 fn dedup_insert_returns_old_pid_not_new_pid() {
     let mut ss = fresh_session();
-    ss.insert_player_dedup_by_name("stale", PlayerState::new("Alice".to_string()));
+    let setup = ss.insert_player_dedup_by_name("stale", PlayerState::new("Alice".to_string()));
+    assert_eq!(setup, None, "first insert cannot report a removal");
 
     let removed = ss.insert_player_dedup_by_name("fresh", PlayerState::new("Alice".to_string()));
 
@@ -154,8 +169,15 @@ fn dedup_insert_returns_old_pid_not_new_pid() {
 #[test]
 fn player_count_after_solo_reconnect_cannot_trigger_barrier_auto_promotion() {
     let mut ss = fresh_session();
-    ss.insert_player_dedup_by_name("old", PlayerState::new("Alice".to_string()));
-    ss.insert_player_dedup_by_name("new", PlayerState::new("Alice".to_string()));
+    let setup = ss.insert_player_dedup_by_name("old", PlayerState::new("Alice".to_string()));
+    assert_eq!(setup, None, "first insert cannot report a removal");
+    let reconnect =
+        ss.insert_player_dedup_by_name("new", PlayerState::new("Alice".to_string()));
+    assert_eq!(
+        reconnect.as_deref(),
+        Some("old"),
+        "same-name reconnect MUST return the old pid so caller reconciles external rosters"
+    );
 
     assert_eq!(
         ss.player_count(),
@@ -197,13 +219,17 @@ fn lib_returning_player_path_uses_dedup_chokepoint() {
 
     // Defence-in-depth: no raw `players.insert` inside lib.rs after
     // the fix. If a new site appears later, this assertion forces the
-    // author to route through the chokepoint.
+    // author to route through the chokepoint. Uses assert_eq!'s
+    // format-arg tail so `raw_inserts` actually interpolates in the
+    // failure message (story 37-19 review fix — the prior literal
+    // "{raw_inserts}" was not substituted).
     let raw_inserts = src.matches("players.insert(").count();
     assert_eq!(
         raw_inserts, 0,
         "src/lib.rs must not call `.players.insert(...)` directly — \
          all inserts must go through insert_player_dedup_by_name \
-         (found {raw_inserts} raw call sites)"
+         (found {} raw call sites)",
+        raw_inserts
     );
 }
 
@@ -225,7 +251,8 @@ fn dispatch_connect_insertions_use_dedup_chokepoint() {
     assert_eq!(
         raw_inserts, 0,
         "src/dispatch/connect.rs must not call `ss.players.insert(...)` directly — \
-         route all inserts through the dedup chokepoint (found {raw_inserts} raw call sites)"
+         route all inserts through the dedup chokepoint (found {} raw call sites)",
+        raw_inserts
     );
 }
 
@@ -271,25 +298,204 @@ fn no_other_server_src_file_inserts_into_players_directly() {
 // subsystem must emit OTEL so the GM panel can confirm the fix fired.
 // ---------------------------------------------------------------------------
 
-/// AC-9 (OTEL): The dedup chokepoint, or its call sites, must emit a
-/// watcher event when a phantom entry is removed. Without this, a
-/// future regression would be invisible in the GM panel — Claude would
-/// still "wing it" on narration and we'd have no signal that the
-/// dedup actually fired.
+/// AC-9 (OTEL): The dedup chokepoint must emit a watcher event with the
+/// canonical name `phantom_player_removed` when a phantom entry is
+/// removed, and it must emit it from an actual `WatcherEventBuilder`
+/// call — not just have the string floating in a comment or docstring.
+/// Per CLAUDE.md OTEL observability rule, the GM panel is the lie
+/// detector: a dead string in a comment wouldn't page anyone.
+///
+/// Review hardening (story 37-19, round 2): tightened from a pure
+/// substring scan that matched anywhere (comments, dead code, docstrings)
+/// to an adjacency check that requires `phantom_player_removed` to
+/// appear within ~6 lines of a `WatcherEventBuilder::new(` and a
+/// `.field("event",` — the actual emit shape.
 #[test]
 fn phantom_player_dedup_emits_otel_event() {
-    let lib_src = read_source("src/lib.rs");
-    let connect_src = read_source("src/dispatch/connect.rs");
     let shared_src = read_source("src/shared_session.rs");
 
-    let combined = format!("{lib_src}\n{connect_src}\n{shared_src}");
-
+    // Look for the canonical event name.
+    let event_name = "phantom_player_removed";
     assert!(
-        combined.contains("phantom_player_removed")
-            || combined.contains("player.dedup")
-            || combined.contains("session.reconnect.phantom"),
-        "dedup chokepoint must emit an OTEL watcher event (e.g. \
-         `player.dedup` / `session.reconnect.phantom` / \
-         `phantom_player_removed`) so the GM panel shows when the fix fires"
+        shared_src.contains(event_name),
+        "dedup chokepoint must emit an OTEL watcher event with the canonical \
+         name `{event_name}` so the GM panel shows when the fix fires"
     );
+
+    // Now prove the string is inside a real emit context, not a comment.
+    // Walk the file line-by-line; every line that contains the event name
+    // must have a WatcherEventBuilder::new(...) within the preceding 6
+    // lines AND a .field("event", ...) on the same or an adjacent line.
+    let lines: Vec<&str> = shared_src.lines().collect();
+    let mut emit_site_found = false;
+    for (idx, line) in lines.iter().enumerate() {
+        if !line.contains(event_name) {
+            continue;
+        }
+        // Skip doc / inline comments — they mention the name to document
+        // the invariant, not to emit it.
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") || trimmed.starts_with("///") {
+            continue;
+        }
+        let start = idx.saturating_sub(6);
+        let window = lines[start..=idx].join("\n");
+        if window.contains("WatcherEventBuilder::new(")
+            && (window.contains(".field(\"event\",") || line.contains(".field(\"event\","))
+        {
+            emit_site_found = true;
+            break;
+        }
+    }
+    assert!(
+        emit_site_found,
+        "`{event_name}` must appear inside a real emit context — a \
+         WatcherEventBuilder::new(...).field(\"event\", ...) chain. \
+         A bare string reference (comment, docstring, dead code) is not \
+         sufficient for the GM panel."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile-roster contract — the second half of the dedup chokepoint
+// (rejected review round 1). Without this, the fix was half-wired: it
+// removed the phantom from `players` but left stale references in
+// `turn_barrier`, `perception_filters`, and `pending_dice_requests`,
+// reproducing the playtest-2026-04-12 deadlock one subsystem up.
+// ---------------------------------------------------------------------------
+
+/// AC-10 (wiring): Both production call sites of the dedup chokepoint
+/// must act on the returned `Option<String>`. A `let _ =` or bare call
+/// that discards the return would silently recreate the half-wired
+/// state. We look for `reconcile_removed_player(` adjacent to every
+/// `insert_player_dedup_by_name(` call in production source.
+#[test]
+fn dedup_call_sites_feed_returned_pid_into_reconcile() {
+    for relative in ["src/lib.rs", "src/dispatch/connect.rs"] {
+        let src = read_source(relative);
+
+        // Every call site must be paired with a reconcile_removed_player
+        // call within a reasonable window.
+        let calls = src.matches("insert_player_dedup_by_name(").count();
+        let reconciles = src.matches("reconcile_removed_player(").count();
+        assert!(
+            reconciles >= calls,
+            "{relative}: {calls} insert_player_dedup_by_name call site(s) but only {reconciles} \
+             reconcile_removed_player call site(s). Every call to the chokepoint must feed its \
+             Some(old_pid) return into reconcile_removed_player — otherwise turn_barrier / \
+             perception_filters / pending_dice_requests leak references to a pid that no longer \
+             exists in `players` (story 37-19 round 2 review finding — CRITICAL)."
+        );
+    }
+}
+
+/// AC-11 (runtime integration — CLAUDE.md wiring test rule): Exercise
+/// the full chokepoint + reconcile chain end-to-end through the
+/// `SharedGameSession` API. Install a `TurnBarrier` and a
+/// `PerceptionFilter` keyed by the old pid, reconnect under a new pid,
+/// feed the returned old pid through `reconcile_removed_player`, and
+/// assert that BOTH `players` AND all downstream rosters collapse to
+/// the new pid. This is the test that would have caught the round-1
+/// review finding — the prior AC-5 only checked `player_count()`.
+#[test]
+fn dedup_plus_reconcile_collapses_downstream_rosters_end_to_end() {
+    let mut ss = fresh_session();
+
+    // Install Alice under pid "old-pid".
+    let removed_initial =
+        ss.insert_player_dedup_by_name("old-pid", PlayerState::new("Alice".to_string()));
+    assert_eq!(removed_initial, None, "first insert never reports a removal");
+
+    // Install a TurnBarrier expecting "old-pid", and a perception filter
+    // keyed by "old-pid". In production these are populated by the
+    // multiplayer session / blinded-character paths respectively.
+    let mp_session = sidequest_game::multiplayer::MultiplayerSession::new(
+        std::collections::HashMap::new(),
+    );
+    ss.turn_barrier = Some(TurnBarrier::new(
+        mp_session,
+        sidequest_game::barrier::TurnBarrierConfig::default(),
+    ));
+    if let Some(ref barrier) = ss.turn_barrier {
+        // Use the internal add_player with a placeholder character. The
+        // exact character shape doesn't matter — we're testing roster
+        // membership, not barrier resolution.
+        let placeholder = sidequest_game::Character {
+            core: sidequest_game::CreatureCore {
+                name: sidequest_protocol::NonBlankString::new("Alice").unwrap(),
+                description: sidequest_protocol::NonBlankString::new("reconnect-test").unwrap(),
+                personality: sidequest_protocol::NonBlankString::new("n/a").unwrap(),
+                level: 1,
+                hp: 1,
+                max_hp: 1,
+                ac: 10,
+                xp: 0,
+                statuses: vec![],
+                inventory: sidequest_game::Inventory::default(),
+            },
+            backstory: sidequest_protocol::NonBlankString::new("n/a").unwrap(),
+            narrative_state: String::new(),
+            hooks: vec![],
+            char_class: sidequest_protocol::NonBlankString::new("barrier").unwrap(),
+            race: sidequest_protocol::NonBlankString::new("barrier").unwrap(),
+            pronouns: String::new(),
+            stats: std::collections::HashMap::new(),
+            abilities: vec![],
+            known_facts: vec![],
+            affinities: vec![],
+            is_friendly: true,
+            resolved_archetype: None,
+            archetype_provenance: None,
+        };
+        barrier
+            .add_player("old-pid".to_string(), placeholder)
+            .expect("add_player on fresh barrier must succeed");
+    }
+    ss.perception_filters.insert(
+        "old-pid".to_string(),
+        PerceptionFilter::new("Alice".to_string(), vec![]),
+    );
+
+    // Precondition: both rosters reference old-pid.
+    assert!(ss.has_perception_filter("old-pid"));
+
+    // Alice reconnects under "new-pid".
+    let removed_on_reconnect =
+        ss.insert_player_dedup_by_name("new-pid", PlayerState::new("Alice".to_string()));
+    assert_eq!(
+        removed_on_reconnect.as_deref(),
+        Some("old-pid"),
+        "chokepoint must return the displaced pid"
+    );
+
+    // Caller wires the returned pid through reconcile_removed_player —
+    // this is what the production call sites do (AC-10 locks that).
+    let old_pid = removed_on_reconnect.expect("chokepoint returned Some above");
+    ss.reconcile_removed_player(&old_pid);
+
+    // Post-conditions: `players` has only new-pid, AND downstream rosters
+    // no longer reference old-pid. This is the invariant that was broken
+    // in round 1 of review — players collapsed but rosters didn't.
+    assert_eq!(ss.player_count(), 1, "players collapsed to single entry");
+    assert!(ss.contains_player("new-pid"));
+    assert!(!ss.contains_player("old-pid"));
+    assert!(
+        !ss.has_perception_filter("old-pid"),
+        "perception_filters must not retain a stale pid after reconcile — \
+         round-1 review finding: this was leaking and would rewrite narration \
+         for a pid that no longer exists"
+    );
+    // Barrier: we don't have a public observation API, but calling
+    // remove_player on an absent pid returns Err — so removing old-pid
+    // AGAIN after reconcile should return Err, confirming the slot is
+    // gone.
+    if let Some(ref barrier) = ss.turn_barrier {
+        assert!(
+            barrier.remove_player("old-pid").is_err(),
+            "turn_barrier must not retain old-pid after reconcile — it should \
+             already be gone. If this assertion fails, reconcile_removed_player \
+             did not evict from the barrier and the playtest-2026-04-12 deadlock \
+             will recur."
+        );
+    }
 }

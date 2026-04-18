@@ -2619,10 +2619,32 @@ pub(crate) async fn dispatch_character_creation(
                                     if let Some(ref cj) = *character_json_store {
                                         transferred.character_json = Some(cj.clone());
                                     }
-                                    // Route through the dedup chokepoint even though we
-                                    // just removed the old entry — keeps all player
-                                    // insertions on one code path (story 37-19).
-                                    ss.insert_player_dedup_by_name(player_id, transferred);
+                                    // Route through the dedup chokepoint for code-path
+                                    // uniformity. The old entry was already removed above,
+                                    // so dedup's find() cannot match and the call will
+                                    // return None at runtime — the call site exists to
+                                    // satisfy the source-level wiring invariant (story 37-19,
+                                    // AC-7). The debug_assert pins the invariant so a future
+                                    // reorder that lets dedup fire here will surface loudly
+                                    // in test builds rather than silently leaking an old_pid.
+                                    let dedup_redundant =
+                                        ss.insert_player_dedup_by_name(player_id, transferred);
+                                    debug_assert!(
+                                        dedup_redundant.is_none(),
+                                        "reconnect-transfer path already removed old={old:?} above; \
+                                         chokepoint should find no phantom. Got: {dedup_redundant:?}"
+                                    );
+                                    if let Some(unexpected_pid) = dedup_redundant {
+                                        // Production safety net: if the invariant ever breaks
+                                        // in release builds (debug_assert is compiled out),
+                                        // still reconcile rather than silently leak.
+                                        tracing::warn!(
+                                            unexpected_pid = %unexpected_pid,
+                                            new_pid = %player_id,
+                                            "reconnect-transfer dedup fired unexpectedly — reconciling defensively"
+                                        );
+                                        ss.reconcile_removed_player(&unexpected_pid);
+                                    }
                                 }
                                 // Update barrier roster: swap old player_id for new one
                                 if let Some(ref barrier) = ss.turn_barrier {
@@ -2727,7 +2749,21 @@ pub(crate) async fn dispatch_character_creation(
                             if !is_reconnect {
                                 let ps = shared_session::PlayerState::new(connecting_name.clone());
                                 // Single dedup chokepoint for all player inserts (story 37-19).
-                                ss.insert_player_dedup_by_name(player_id, ps);
+                                // is_reconnect==false is a semantic precondition (no phantom
+                                // expected), not a type guarantee — if a handshake race ever
+                                // lets dedup fire here, reconcile defensively instead of
+                                // silently dropping the returned old_pid.
+                                if let Some(unexpected_pid) =
+                                    ss.insert_player_dedup_by_name(player_id, ps)
+                                {
+                                    tracing::warn!(
+                                        unexpected_pid = %unexpected_pid,
+                                        new_pid = %player_id,
+                                        player_name = %connecting_name,
+                                        "fresh-connect dedup fired unexpectedly — reconciling defensively"
+                                    );
+                                    ss.reconcile_removed_player(&unexpected_pid);
+                                }
                                 // Populate character data on the PlayerState
                                 if let Some(p) = ss.players.get_mut(player_id) {
                                     p.character_name =
