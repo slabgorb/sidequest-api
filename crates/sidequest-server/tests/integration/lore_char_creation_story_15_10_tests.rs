@@ -42,6 +42,8 @@ fn test_mechanical_effects() -> MechanicalEffects {
         pronoun_hint: None,
         equipment_generation: None,
         stat_generation: None,
+        jungian_hint: None,
+        rpg_role_hint: None,
     }
 }
 

@@ -272,48 +272,63 @@ fn otel_mutation_missed_event_exists() {
 /// explicit pickup narration ("picks up X and pockets it").
 #[test]
 fn parse_response_explicit_pickup_narration() {
+    use sidequest_agents::inventory_extractor::ExtractionOutcome;
     let haiku_response = r#"[{"item_name": "rusty key", "action": "acquired", "detail": "player picks up the rusty key from the ground and pockets it", "category": "quest", "gold": null}]"#;
 
-    let mutations =
-        sidequest_agents::inventory_extractor::parse_extraction_response(haiku_response)
-            .expect("Explicit pickup narration must parse as acquisition");
-    assert_eq!(mutations.len(), 1);
-    assert_eq!(mutations[0].action, MutationAction::Acquired);
-    assert_eq!(mutations[0].item_name, "rusty key");
+    match sidequest_agents::inventory_extractor::parse_extraction_response(haiku_response) {
+        ExtractionOutcome::Mutations(mutations) => {
+            assert_eq!(mutations.len(), 1);
+            assert_eq!(mutations[0].action, MutationAction::Acquired);
+            assert_eq!(mutations[0].item_name, "rusty key");
+        }
+        other => panic!("Explicit pickup narration must parse as acquisition, got: {other:?}"),
+    }
 }
 
 /// parse_extraction_response must handle fenced pickup responses.
 #[test]
 fn parse_response_fenced_pickup() {
+    use sidequest_agents::inventory_extractor::ExtractionOutcome;
     let response = "Based on the narration, the player acquired an item:\n```json\n[{\"item_name\": \"old compass\", \"action\": \"acquired\", \"detail\": \"found and pocketed\", \"category\": \"tool\", \"gold\": null}]\n```";
 
-    let mutations = sidequest_agents::inventory_extractor::parse_extraction_response(response)
-        .expect("Fenced pickup response must parse");
-    assert_eq!(mutations.len(), 1);
-    assert_eq!(mutations[0].action, MutationAction::Acquired);
+    match sidequest_agents::inventory_extractor::parse_extraction_response(response) {
+        ExtractionOutcome::Mutations(mutations) => {
+            assert_eq!(mutations.len(), 1);
+            assert_eq!(mutations[0].action, MutationAction::Acquired);
+        }
+        other => panic!("Fenced pickup response must parse, got: {other:?}"),
+    }
 }
 
 /// parse_extraction_response must handle the "finds a key" pattern.
 #[test]
 fn parse_response_finds_pattern() {
+    use sidequest_agents::inventory_extractor::ExtractionOutcome;
     let response = r#"[{"item_name": "silver ring", "action": "acquired", "detail": "finds it in the dust", "category": "treasure", "gold": null}]"#;
 
-    let mutations = sidequest_agents::inventory_extractor::parse_extraction_response(response)
-        .expect("'finds' pattern must parse as acquisition");
-    assert_eq!(mutations.len(), 1);
-    assert_eq!(mutations[0].action, MutationAction::Acquired);
+    match sidequest_agents::inventory_extractor::parse_extraction_response(response) {
+        ExtractionOutcome::Mutations(mutations) => {
+            assert_eq!(mutations.len(), 1);
+            assert_eq!(mutations[0].action, MutationAction::Acquired);
+        }
+        other => panic!("'finds' pattern must parse as acquisition, got: {other:?}"),
+    }
 }
 
 /// parse_extraction_response must handle "loots X from the corpse" pattern.
 #[test]
 fn parse_response_loots_from_corpse() {
+    use sidequest_agents::inventory_extractor::ExtractionOutcome;
     let response = r#"[{"item_name": "iron sword", "action": "acquired", "detail": "loots from the fallen bandit's corpse", "category": "weapon", "gold": null}]"#;
 
-    let mutations = sidequest_agents::inventory_extractor::parse_extraction_response(response)
-        .expect("'loots from corpse' must parse as acquisition");
-    assert_eq!(mutations.len(), 1);
-    assert_eq!(mutations[0].action, MutationAction::Acquired);
-    assert_eq!(mutations[0].category.as_deref(), Some("weapon"));
+    match sidequest_agents::inventory_extractor::parse_extraction_response(response) {
+        ExtractionOutcome::Mutations(mutations) => {
+            assert_eq!(mutations.len(), 1);
+            assert_eq!(mutations[0].action, MutationAction::Acquired);
+            assert_eq!(mutations[0].category.as_deref(), Some("weapon"));
+        }
+        other => panic!("'loots from corpse' must parse as acquisition, got: {other:?}"),
+    }
 }
 
 // ============================================================================
