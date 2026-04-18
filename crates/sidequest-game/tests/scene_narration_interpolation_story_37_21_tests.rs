@@ -1,21 +1,31 @@
-//! Story 37-21: scene narration placeholder interpolation.
+//! Scene narration placeholder interpolation tests.
 //!
-//! Genre packs (space_opera, heavy_metal) author confirmation-scene narration
-//! with `{name}`, `{class}`, `{race}` placeholders intended to be substituted
-//! from the builder's accumulated state. Before the fix those tokens rendered
-//! literally because nothing interpolated `scene.narration` before it was
-//! cloned into the `CharacterCreation` payload.
+//! Covers the `CharacterBuilder` interpolator that substitutes
+//! `{name}`, `{class}`, and `{race}` placeholders in `scene.narration`
+//! before the text is cloned into the `CharacterCreation` payload.
 //!
-//! These tests exercise the interpolation through the real public
-//! `to_scene_message()` entry point — the exact same call the server dispatch
-//! loop uses when it sends the scene to the client. A passing unit test on an
-//! isolated helper would not prove the payload path is wired correctly.
+//! Invariants asserted:
+//! - Known placeholders are substituted from accumulated builder state.
+//! - A literal `{name}` / `{class}` / `{race}` never leaks to the client,
+//!   even when the backing value is unset (substitute empty string).
+//! - Text containing no curly braces is returned byte-for-byte.
+//! - Unrecognized brace tokens (`{origin}`, typos) pass through to the
+//!   output AND fire a Warn OTEL event so a GM can catch author typos.
+//! - The payload constructor (`to_scene_message`) routes through the
+//!   interpolator, not just the private helper in isolation.
+//! - The OTEL `chargen.StateTransition` event fires on every interpolation
+//!   and carries the correct resolved / missing fields.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{CharCreationChoice, CharCreationScene, MechanicalEffects, RulesConfig};
 use sidequest_protocol::GameMessage;
+use sidequest_telemetry::{
+    init_global_channel, subscribe_global, Severity, WatcherEvent, WatcherEventType,
+};
+use tokio::sync::broadcast::error::TryRecvError;
 
 fn rules() -> RulesConfig {
     RulesConfig {
@@ -55,7 +65,8 @@ fn rules() -> RulesConfig {
     }
 }
 
-/// Two-scene flow: (1) class choice, (2) freeform name entry with placeholder-bearing narration.
+/// Two-scene flow: class choice, then a placeholder-bearing scene so the
+/// second scene's narration renders while the builder is still in InProgress.
 fn scenes_with_placeholders() -> Vec<CharCreationScene> {
     vec![
         CharCreationScene {
@@ -76,10 +87,6 @@ fn scenes_with_placeholders() -> Vec<CharCreationScene> {
             hook_prompt: None,
             mechanical_effects: None,
         },
-        // Final scene: freeform name entry. After apply_freeform("Naomi"),
-        // builder advances to BuilderPhase::Confirmation — BUT only AFTER
-        // to_scene_message() renders this scene's narration first. That is
-        // the render we need to exercise.
         CharCreationScene {
             id: "confirmation".to_string(),
             title: "Welcome Aboard".to_string(),
@@ -109,19 +116,15 @@ fn confirmation_scene_interpolates_accumulated_state() {
     let rules = rules();
     let mut builder = CharacterBuilder::new(scenes, &rules, None);
 
-    // Scene 0: pick Drifter (populates class_hint + race_hint).
+    // Name is not set at this point (no freeform name entry has run). The
+    // class-choice scene populates class_hint and race_hint; those must
+    // substitute, while `{name}` substitutes as empty. This test covers
+    // class + race resolution; the empty-name case is exercised separately.
     builder.apply_choice(0).expect("class choice applies");
 
-    // Seed the character_name directly for the interpolation test — the name
-    // resolver reads from the last freeform result, which we inject via
-    // apply_freeform on the confirmation scene. But the scene narration
-    // renders BEFORE the name is captured into results, so we need a separate
-    // assertion path. Here we assert class + race interpolate cleanly on the
-    // confirmation-scene render; the empty-name case is exercised below.
-    let msg_before_name = builder.to_scene_message("player-1");
-    let prompt = extract_prompt(&msg_before_name);
+    let msg = builder.to_scene_message("player-1");
+    let prompt = extract_prompt(&msg);
 
-    // Class and race must resolve from the class-choice scene results.
     assert!(
         prompt.contains("Drifter"),
         "class placeholder should interpolate: got {prompt:?}"
@@ -131,7 +134,7 @@ fn confirmation_scene_interpolates_accumulated_state() {
         "race placeholder should interpolate: got {prompt:?}"
     );
 
-    // No literal placeholders may remain in the rendered prompt.
+    // No literal known placeholders may remain.
     assert!(
         !prompt.contains("{class}"),
         "rendered prompt must not contain literal {{class}}: {prompt:?}"
@@ -144,9 +147,9 @@ fn confirmation_scene_interpolates_accumulated_state() {
 
 #[test]
 fn missing_name_substitutes_empty_string_rather_than_leaking_literal() {
-    // The confirmation-scene narration renders before the player types their
-    // name. `{name}` therefore resolves to an empty string. The important
-    // invariant: a literal "{name}" must NOT leak to the client.
+    // The placeholder-bearing scene renders before any freeform name entry.
+    // `{name}` resolves to empty string. The invariant: a literal "{name}"
+    // must NOT leak to the client.
     let scenes = scenes_with_placeholders();
     let rules = rules();
     let mut builder = CharacterBuilder::new(scenes, &rules, None);
@@ -159,8 +162,6 @@ fn missing_name_substitutes_empty_string_rather_than_leaking_literal() {
         !prompt.contains("{name}"),
         "literal {{name}} must never reach the client: {prompt:?}"
     );
-    // Welcome should read "Welcome aboard, ." — awkward punctuation is
-    // acceptable for unresolved placeholders; leaking "{name}" is not.
     assert!(
         prompt.contains("Welcome aboard,"),
         "surrounding prose must still render: {prompt:?}"
@@ -169,8 +170,7 @@ fn missing_name_substitutes_empty_string_rather_than_leaking_literal() {
 
 #[test]
 fn scene_without_placeholders_is_returned_verbatim() {
-    // A scene whose narration contains no curly braces must pass through
-    // byte-for-byte — no accidental rewrites, no stray substitutions.
+    // Byte-for-byte passthrough when no curly braces are present.
     let scenes = vec![CharCreationScene {
         id: "plain".to_string(),
         title: "Plain".to_string(),
@@ -190,19 +190,19 @@ fn scene_without_placeholders_is_returned_verbatim() {
 
     let msg = builder.to_scene_message("player-1");
     let prompt = extract_prompt(&msg);
-    assert_eq!(prompt, "The wind shifts. The earth hums. The water remembers.");
+    assert_eq!(
+        prompt,
+        "The wind shifts. The earth hums. The water remembers."
+    );
 }
 
-/// Wiring check: verify the production dispatch path (to_scene_message)
-/// actually invokes the interpolation, not merely that a helper exists on
-/// the builder. Satisfies the project rule "Every Test Suite Needs a Wiring
-/// Test" — a unit test on a private helper would not catch a regression
-/// where the payload constructor forgets to call it.
+/// Wiring check: the production dispatch path (`to_scene_message`) must
+/// actually invoke the interpolator. A substring check on a rendered token
+/// name would pass against an uninterpolated input (`"playername={name}"`
+/// also contains `"playername="`), so the assertion here is the full
+/// expected post-interpolation output.
 #[test]
 fn wiring_scene_message_payload_routes_through_interpolator() {
-    // Two scenes so to_scene_message stays in InProgress after the first
-    // choice — the second scene (with the placeholder narration) is the one
-    // we assert against.
     let scenes = vec![
         CharCreationScene {
             id: "class_pick".to_string(),
@@ -244,11 +244,220 @@ fn wiring_scene_message_payload_routes_through_interpolator() {
     let msg = builder.to_scene_message("player-1");
     let prompt = extract_prompt(&msg);
 
-    // Every token must be interpolated where its data exists. The payload
-    // constructor is what gets this right — not an isolated helper.
-    assert!(prompt.contains("classname=Spacer"), "got {prompt:?}");
-    assert!(prompt.contains("racename=Belt"), "got {prompt:?}");
-    // Name is unset → empty substitution, but no literal leak.
-    assert!(prompt.contains("playername="), "got {prompt:?}");
-    assert!(!prompt.contains("{"), "no literal braces: {prompt:?}");
+    // Full-string equality — a no-op interpolator would leave `{class}` etc.
+    // in the output and fail this exact assertion, unlike a substring check
+    // that would pass on uninterpolated input.
+    assert_eq!(prompt, "classname=Spacer|racename=Belt|playername=");
+}
+
+#[test]
+fn placeholders_appearing_more_than_once_all_substitute() {
+    // str::replace is defined to replace all occurrences; this test locks
+    // that behavior so a future refactor to a hand-rolled scanner cannot
+    // silently drop duplicates.
+    let scenes = vec![
+        CharCreationScene {
+            id: "class_pick".to_string(),
+            title: "Pick".to_string(),
+            narration: "Choose.".to_string(),
+            choices: vec![CharCreationChoice {
+                label: "Drifter".to_string(),
+                description: "A drifter.".to_string(),
+                mechanical_effects: MechanicalEffects {
+                    class_hint: Some("Drifter".to_string()),
+                    ..Default::default()
+                },
+            }],
+            allows_freeform: Some(false),
+            loading_text: None,
+            hook_prompt: None,
+            mechanical_effects: None,
+        },
+        CharCreationScene {
+            id: "dup".to_string(),
+            title: "Dup".to_string(),
+            narration: "{class} is a {class}.".to_string(),
+            choices: vec![CharCreationChoice {
+                label: "Continue".to_string(),
+                description: "Continue.".to_string(),
+                mechanical_effects: MechanicalEffects::default(),
+            }],
+            allows_freeform: Some(false),
+            loading_text: None,
+            hook_prompt: None,
+            mechanical_effects: None,
+        },
+    ];
+    let rules = rules();
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
+    builder.apply_choice(0).expect("choice applies");
+
+    let msg = builder.to_scene_message("player-1");
+    let prompt = extract_prompt(&msg);
+    assert_eq!(prompt, "Drifter is a Drifter.");
+}
+
+/// Unrecognized brace tokens (author typos, unsupported keys) must pass
+/// through verbatim AND fire a separate Warn OTEL event so a GM can spot
+/// them instead of watching them render silently to the player.
+#[tokio::test]
+async fn unrecognized_token_passes_through_and_fires_warn_event() {
+    init_global_channel();
+    let mut rx = subscribe_global().expect("channel should be initialized");
+
+    let scenes = vec![
+        CharCreationScene {
+            id: "class_pick".to_string(),
+            title: "Pick".to_string(),
+            narration: "Choose.".to_string(),
+            choices: vec![CharCreationChoice {
+                label: "Drifter".to_string(),
+                description: "A drifter.".to_string(),
+                mechanical_effects: MechanicalEffects {
+                    class_hint: Some("Drifter".to_string()),
+                    ..Default::default()
+                },
+            }],
+            allows_freeform: Some(false),
+            loading_text: None,
+            hook_prompt: None,
+            mechanical_effects: None,
+        },
+        CharCreationScene {
+            id: "typo".to_string(),
+            title: "Typo".to_string(),
+            // `{nmae}` is an author typo; `{origin}` is an unsupported key.
+            // The rendered output keeps both literal (scope decision: the
+            // interpolator's contract is the three known keys only), but a
+            // Warn WatcherEvent must fire so the GM panel surfaces the typo.
+            narration: "Hello {nmae} from {origin}.".to_string(),
+            choices: vec![CharCreationChoice {
+                label: "Continue".to_string(),
+                description: "Continue.".to_string(),
+                mechanical_effects: MechanicalEffects::default(),
+            }],
+            allows_freeform: Some(false),
+            loading_text: None,
+            hook_prompt: None,
+            mechanical_effects: None,
+        },
+    ];
+    let rules = rules();
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
+    builder.apply_choice(0).expect("choice applies");
+
+    let msg = builder.to_scene_message("player-1");
+    let prompt = extract_prompt(&msg);
+
+    // Passthrough behavior: unrecognized tokens reach the client literally.
+    assert_eq!(prompt, "Hello {nmae} from {origin}.");
+
+    // Warn-event behavior: at least one unrecognized_placeholder event must
+    // have fired, naming one of the offending tokens.
+    let events = drain_events(&mut rx);
+    let warn = events
+        .iter()
+        .find(|ev| {
+            ev.component == "chargen"
+                && ev.fields.get("action").and_then(|v| v.as_str())
+                    == Some("scene_narration_unrecognized_placeholder")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a scene_narration_unrecognized_placeholder event, got {} events: {:?}",
+                events.len(),
+                events
+                    .iter()
+                    .map(|e| e.fields.get("action").and_then(|v| v.as_str()))
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert!(
+        matches!(warn.severity, Severity::Warn),
+        "unrecognized-token event must be Warn severity"
+    );
+    let token = warn
+        .fields
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token field present");
+    assert!(
+        token == "{nmae}" || token == "{origin}",
+        "token should be one of the two unrecognized braces, got {token:?}"
+    );
+}
+
+/// OTEL coverage: a successful interpolation must emit a StateTransition
+/// with per-key resolved fields so the GM panel can distinguish "placeholder
+/// was present and resolved" from "placeholder was present but value was
+/// empty" from "placeholder was absent entirely."
+#[tokio::test]
+async fn interpolation_emits_state_transition_event() {
+    init_global_channel();
+    let mut rx = subscribe_global().expect("channel should be initialized");
+
+    let scenes = scenes_with_placeholders();
+    let rules = rules();
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
+    builder.apply_choice(0).expect("class choice applies");
+
+    let _msg = builder.to_scene_message("player-1");
+
+    let events = drain_events(&mut rx);
+    let event = events
+        .iter()
+        .find(|ev| {
+            ev.component == "chargen"
+                && matches!(ev.event_type, WatcherEventType::StateTransition)
+                && ev.fields.get("action").and_then(|v| v.as_str())
+                    == Some("scene_narration_interpolated")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected scene_narration_interpolated event, got {} events",
+                events.len()
+            )
+        });
+
+    // Name placeholder WAS present but not resolved (no name entered yet)
+    // → Warn severity, name_resolved = Some(false).
+    assert!(
+        matches!(event.severity, Severity::Warn),
+        "event severity must be Warn when a placeholder is unresolved"
+    );
+    assert_eq!(
+        event.fields.get("name_resolved").and_then(|v| v.as_bool()),
+        Some(false),
+        "name_resolved must be false (placeholder present, value empty): {:?}",
+        event.fields
+    );
+    // Class + race were resolved from the class-choice scene.
+    assert_eq!(
+        event.fields.get("class_resolved").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        event.fields.get("race_resolved").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+}
+
+/// Drain all currently available events from the broadcast receiver without
+/// blocking. Events are consumed up to a short deadline so tests don't hang
+/// if the channel has buffered events from earlier tests.
+fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<WatcherEvent> {
+    // Give the sender a brief window to publish — broadcast send is sync but
+    // the receiver's internal buffer is drained by try_recv. A small sleep
+    // avoids flakiness when the test and the emit race on a cold cache.
+    std::thread::sleep(Duration::from_millis(10));
+    let mut out = Vec::new();
+    loop {
+        match rx.try_recv() {
+            Ok(ev) => out.push(ev),
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Closed) => break,
+            Err(TryRecvError::Lagged(_)) => continue,
+        }
+    }
+    out
 }

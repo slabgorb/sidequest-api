@@ -240,6 +240,29 @@ pub struct CharacterBuilder {
     equipment_tables: Option<EquipmentTables>,
 }
 
+/// Return the first `{...}` substring whose key is not one of the known
+/// interpolator tokens (`{name}`, `{class}`, `{race}`).
+///
+/// Used by `CharacterBuilder::interpolate_scene_narration` to surface
+/// author-typo'd or unsupported placeholder keys via an OTEL Warn event
+/// rather than letting them leak silently to the client.
+pub(crate) fn find_unrecognized_token(rendered: &str) -> Option<String> {
+    // Scan for a `{` and its matching `}` on the same pass. A malformed
+    // token (unclosed brace, nested braces) is itself a problem worth
+    // reporting — we report the first brace-bounded substring we find,
+    // or the unclosed suffix if no `}` follows.
+    let start = rendered.find('{')?;
+    let end_rel = rendered[start + 1..].find('}');
+    let token_slice = match end_rel {
+        Some(e) => &rendered[start..start + 1 + e + 1], // includes closing `}`
+        None => &rendered[start..],                     // unclosed — report as-is
+    };
+    match token_slice {
+        "{name}" | "{class}" | "{race}" => None,
+        _ => Some(token_slice.to_string()),
+    }
+}
+
 impl CharacterBuilder {
     /// Create a new builder. Panics if `scenes` is empty.
     pub fn new(
@@ -486,16 +509,20 @@ impl CharacterBuilder {
     /// Substitute `{name}`, `{class}`, `{race}` placeholders in scene narration
     /// with the builder's accumulated character state.
     ///
-    /// Genre packs (space_opera, heavy_metal) author confirmation narration
-    /// with personalization placeholders. The text flows verbatim from
-    /// `scene.narration` into the CharacterCreation payload, so without this
-    /// substitution the curly-brace tokens render literally to the player
-    /// ("Welcome aboard, {name}."). See story 37-21.
+    /// Genre packs author confirmation narration with personalization
+    /// placeholders that flow verbatim from `scene.narration` into the
+    /// CharacterCreation payload. Without substitution the curly-brace tokens
+    /// render literally to the player ("Welcome aboard, {name}.").
     ///
     /// Unresolved placeholders (e.g. `{name}` used in a scene that renders
     /// before the name-entry scene) substitute as empty strings. An OTEL
     /// watcher event records which keys were resolved vs. missing so the GM
     /// panel sees silent drift instead of mystery blanks.
+    ///
+    /// Unrecognized tokens (any `{...}` other than `{name}`, `{class}`, `{race}`)
+    /// pass through to the output unchanged and trigger a separate
+    /// `unrecognized_placeholders` Warn event so a genre-pack authoring typo
+    /// (e.g. `{nmae}`, `{origin}`) surfaces instead of rendering silently.
     fn interpolate_scene_narration(&self, text: &str) -> String {
         if !text.contains('{') {
             return text.to_string();
@@ -508,40 +535,48 @@ impl CharacterBuilder {
         let had_name = text.contains("{name}");
         let had_class = text.contains("{class}");
         let had_race = text.contains("{race}");
-        if !(had_name || had_class || had_race) {
-            return text.to_string();
+
+        let rendered = if had_name || had_class || had_race {
+            let out = text
+                .replace("{name}", name)
+                .replace("{class}", class)
+                .replace("{race}", race);
+
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "scene_narration_interpolated")
+                .field_opt("name_resolved", &had_name.then_some(!name.is_empty()))
+                .field_opt("class_resolved", &had_class.then_some(!class.is_empty()))
+                .field_opt("race_resolved", &had_race.then_some(!race.is_empty()))
+                .severity(
+                    if (had_name && name.is_empty())
+                        || (had_class && class.is_empty())
+                        || (had_race && race.is_empty())
+                    {
+                        Severity::Warn
+                    } else {
+                        Severity::Info
+                    },
+                )
+                .send();
+            out
+        } else {
+            text.to_string()
+        };
+
+        // Any `{...}` still present in the rendered output is either a token
+        // the author mistyped (`{nmae}`) or a key this interpolator doesn't
+        // know about (`{origin}`, `{faction}`). Either way the token will
+        // leak to the client literally — so surface it to the GM panel as a
+        // Warn event instead of failing silently (CLAUDE.md "No Silent
+        // Fallbacks"). The event names the offending substring so a GM can
+        // pair it with the genre pack that shipped it.
+        if let Some(unrecognized) = find_unrecognized_token(&rendered) {
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "scene_narration_unrecognized_placeholder")
+                .field("token", unrecognized.as_str())
+                .severity(Severity::Warn)
+                .send();
         }
-
-        let rendered = text
-            .replace("{name}", name)
-            .replace("{class}", class)
-            .replace("{race}", race);
-
-        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
-            .field("action", "scene_narration_interpolated")
-            .field_opt(
-                "name_resolved",
-                &had_name.then(|| !name.is_empty()).map(|b| b.to_string()),
-            )
-            .field_opt(
-                "class_resolved",
-                &had_class.then(|| !class.is_empty()).map(|b| b.to_string()),
-            )
-            .field_opt(
-                "race_resolved",
-                &had_race.then(|| !race.is_empty()).map(|b| b.to_string()),
-            )
-            .severity(
-                if (had_name && name.is_empty())
-                    || (had_class && class.is_empty())
-                    || (had_race && race.is_empty())
-                {
-                    Severity::Warn
-                } else {
-                    Severity::Info
-                },
-            )
-            .send();
 
         rendered
     }

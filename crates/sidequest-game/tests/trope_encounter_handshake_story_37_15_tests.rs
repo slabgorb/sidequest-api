@@ -68,11 +68,7 @@ fn tick_resolves_trope_when_progression_reaches_one() {
 
     // Second tick: 0.6 + 0.6 = 1.0 (clamped) → should auto-resolve
     TropeEngine::tick(&mut tropes, &defs);
-    assert_eq!(
-        tropes[0].progression(),
-        1.0,
-        "progression should reach 1.0"
-    );
+    assert_eq!(tropes[0].progression(), 1.0, "progression should reach 1.0");
     assert_eq!(
         tropes[0].status(),
         TropeStatus::Resolved,
@@ -107,7 +103,10 @@ fn resolved_trope_does_not_tick_further() {
 
     // Tick again — should be skipped (Resolved tropes are filtered)
     let fired = TropeEngine::tick(&mut tropes, &defs);
-    assert!(fired.is_empty(), "resolved trope must not fire additional beats");
+    assert!(
+        fired.is_empty(),
+        "resolved trope must not fire additional beats"
+    );
     assert_eq!(tropes[0].progression(), 1.0, "progression stays at 1.0");
 }
 
