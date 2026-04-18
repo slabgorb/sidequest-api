@@ -208,6 +208,18 @@ fn load_single_world(
     let archetype_funnels: Option<ArchetypeFunnels> =
         load_yaml_optional(&world_path.join("archetype_funnels.yaml"))?;
 
+    // World-tier opening hooks and chargen scenes.
+    //
+    // Interim surgical override ahead of the full Phase 2 layered-content
+    // migration: when a world supplies its own `openings.yaml` or
+    // `char_creation.yaml`, consumers prefer those over the genre-tier
+    // list. This stops named genre-tier content (e.g. the Long Foundry
+    // covenant openings under heavy_metal) from leaking into every world.
+    let openings: Vec<OpeningHook> =
+        load_yaml_optional(&world_path.join("openings.yaml"))?.unwrap_or_default();
+    let char_creation: Vec<CharCreationScene> =
+        load_yaml_optional(&world_path.join("char_creation.yaml"))?.unwrap_or_default();
+
     // Portrait manifest — rich appearance descriptions for NPC portrait generation.
     let portrait_manifest: Vec<PortraitManifestEntry> = {
         #[derive(serde::Deserialize)]
@@ -233,6 +245,8 @@ fn load_single_world(
         legends_raw,
         portrait_manifest,
         archetype_funnels,
+        openings,
+        char_creation,
     })
 }
 
