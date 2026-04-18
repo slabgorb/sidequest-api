@@ -1107,6 +1107,15 @@ pub struct CharacterState {
     pub statuses: Vec<String>,
     /// Inventory item names.
     pub inventory: Vec<String>,
+    /// Provenance of the character's resolved archetype, when available.
+    ///
+    /// Populated after chargen once `sidequest_genre::archetype::resolve_archetype`
+    /// produces a tier-annotated result. Absent during early-session states
+    /// before archetype resolution, and absent on older save-file payloads
+    /// (the field defaults to `None`). The GM panel consumes this to surface
+    /// which tier (Global / Genre / World / Culture) produced the archetype.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archetype_provenance: Option<crate::Provenance>,
 }
 
 /// Initial game state sent on session ready.

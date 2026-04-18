@@ -998,6 +998,7 @@ pub fn build_protocol_delta(
                             .iter()
                             .map(|i| i.name.as_str().to_string())
                             .collect(),
+                        archetype_provenance: c.archetype_provenance.clone(),
                     })
                     .collect(),
             )

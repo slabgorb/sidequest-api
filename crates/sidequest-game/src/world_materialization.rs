@@ -480,6 +480,7 @@ impl WorldBuilder {
                 is_friendly: true,
                 known_facts: Vec::new(),
                 resolved_archetype: None,
+                archetype_provenance: None,
             };
             snap.characters.push(character);
         } else {

@@ -79,6 +79,7 @@ fn test_snapshot() -> GameSnapshot {
             affinities: vec![],
             is_friendly: true,
             resolved_archetype: None,
+            archetype_provenance: None,
         }],
         npcs: vec![],
         location: "Town Square".to_string(),
