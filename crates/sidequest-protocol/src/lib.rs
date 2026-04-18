@@ -6,11 +6,13 @@
 #![warn(missing_docs)]
 
 pub mod message;
+pub mod provenance;
 pub mod sanitize;
 pub mod types;
 
 // Re-export core types at crate root for convenience.
 pub use message::*;
+pub use provenance::{ContributionKind, MergeStep, Provenance, Span, Tier};
 pub use sanitize::sanitize_player_text;
 pub use types::*;
 
