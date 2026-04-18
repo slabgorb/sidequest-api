@@ -483,6 +483,69 @@ impl CharacterBuilder {
         self.default_class.as_deref()
     }
 
+    /// Substitute `{name}`, `{class}`, `{race}` placeholders in scene narration
+    /// with the builder's accumulated character state.
+    ///
+    /// Genre packs (space_opera, heavy_metal) author confirmation narration
+    /// with personalization placeholders. The text flows verbatim from
+    /// `scene.narration` into the CharacterCreation payload, so without this
+    /// substitution the curly-brace tokens render literally to the player
+    /// ("Welcome aboard, {name}."). See story 37-21.
+    ///
+    /// Unresolved placeholders (e.g. `{name}` used in a scene that renders
+    /// before the name-entry scene) substitute as empty strings. An OTEL
+    /// watcher event records which keys were resolved vs. missing so the GM
+    /// panel sees silent drift instead of mystery blanks.
+    fn interpolate_scene_narration(&self, text: &str) -> String {
+        if !text.contains('{') {
+            return text.to_string();
+        }
+        let acc = self.accumulated();
+        let name = self.character_name().unwrap_or("");
+        let class = acc.class_hint.as_deref().unwrap_or("");
+        let race = acc.race_hint.as_deref().unwrap_or("");
+
+        let had_name = text.contains("{name}");
+        let had_class = text.contains("{class}");
+        let had_race = text.contains("{race}");
+        if !(had_name || had_class || had_race) {
+            return text.to_string();
+        }
+
+        let rendered = text
+            .replace("{name}", name)
+            .replace("{class}", class)
+            .replace("{race}", race);
+
+        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            .field("action", "scene_narration_interpolated")
+            .field_opt(
+                "name_resolved",
+                &had_name.then(|| !name.is_empty()).map(|b| b.to_string()),
+            )
+            .field_opt(
+                "class_resolved",
+                &had_class.then(|| !class.is_empty()).map(|b| b.to_string()),
+            )
+            .field_opt(
+                "race_resolved",
+                &had_race.then(|| !race.is_empty()).map(|b| b.to_string()),
+            )
+            .severity(
+                if (had_name && name.is_empty())
+                    || (had_class && class.is_empty())
+                    || (had_race && race.is_empty())
+                {
+                    Severity::Warn
+                } else {
+                    Severity::Info
+                },
+            )
+            .send();
+
+        rendered
+    }
+
     /// Extract the character name from the name-entry scene (last scene with
     /// no choices where the player typed freeform text).
     pub fn character_name(&self) -> Option<&str> {
@@ -1350,7 +1413,7 @@ impl CharacterBuilder {
                         phase: "scene".to_string(),
                         scene_index: Some(*scene_index as u32),
                         total_scenes: Some(self.scenes.len() as u32),
-                        prompt: Some(scene.narration.clone()),
+                        prompt: Some(self.interpolate_scene_narration(&scene.narration)),
                         summary: None,
                         message: None,
                         choices: Some(choices),
