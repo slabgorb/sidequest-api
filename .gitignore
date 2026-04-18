@@ -10,3 +10,4 @@ trace-*.json
 
 # Pennyfarthing / agent session state — orchestrator-only
 .session/
+.cargo_home/
