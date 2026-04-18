@@ -15,7 +15,9 @@
 use std::collections::HashMap;
 
 use sidequest_agents::entity_reference::{extract_potential_references, EntityRegistry};
-use sidequest_game::{Character, CreatureCore, Disposition, GameSnapshot, Inventory, Item, Npc};
+use sidequest_game::{
+    Character, CreatureCore, Disposition, GameSnapshot, Inventory, Item, Npc, ResolutionTier,
+};
 use sidequest_protocol::NonBlankString;
 
 // ===========================================================================
@@ -60,6 +62,12 @@ fn make_npc(name: &str) -> Npc {
         location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
         ocean: None,
         belief_state: sidequest_game::belief_state::BeliefState::default(),
+        resolution_tier: ResolutionTier::default(),
+        non_transactional_interactions: 0,
+        jungian_id: None,
+        rpg_role_id: None,
+        npc_role_id: None,
+        resolved_archetype: None,
     }
 }
 
