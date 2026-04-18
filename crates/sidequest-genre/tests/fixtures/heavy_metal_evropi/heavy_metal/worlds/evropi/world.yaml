@@ -1,0 +1,7 @@
+funnels:
+  - name: Thornwall Mender
+    absorbs:
+      - [sage, healer]
+    faction: Thornwall Convocation
+    lore: "Itinerant healers."
+    cultural_status: respected

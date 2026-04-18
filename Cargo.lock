@@ -1407,10 +1407,21 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sidequest-genre-layered-derive",
  "sidequest-protocol",
  "tempfile",
  "thiserror",
  "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "sidequest-genre-layered-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -1,0 +1,6 @@
+jungian_axis:
+  - id: sage
+    drive: "Seeks truth"
+rpg_role_axis:
+  - id: healer
+npc_role_axis: []

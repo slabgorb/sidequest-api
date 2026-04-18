@@ -1,0 +1,4 @@
+name: Test World
+slug: test_world
+description: "A minimal world for testing summary fields on regions."
+starting_location: heartland

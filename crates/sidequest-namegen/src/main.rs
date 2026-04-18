@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use rand::Rng;
 use serde::Serialize;
-use sidequest_genre::archetype_resolve::{resolve_archetype, ResolutionSource};
+use sidequest_genre::archetype::{resolve_archetype, ResolutionSource};
 use sidequest_genre::models::archetype_constraints::ArchetypeConstraints;
 use sidequest_genre::models::archetype_funnels::ArchetypeFunnels;
 use sidequest_genre::models::npc_traits::NpcTrait;
@@ -308,14 +308,32 @@ fn resolve_axes(
             .and_then(|w| w.archetype_funnels.as_ref())
     });
 
-    // Resolve through the pipeline
-    match resolve_archetype(&jungian_id, &rpg_role_id, base, constraints, funnels) {
-        Ok(resolved) => {
-            let source = match resolved.resolution_source {
+    // Resolve through the Layered framework shim.
+    match resolve_archetype(
+        &jungian_id,
+        &rpg_role_id,
+        base,
+        constraints,
+        funnels,
+        &cli.genre,
+        cli.world.as_deref(),
+    ) {
+        Ok(result) => {
+            // `ResolutionSource` is `#[non_exhaustive]`; the wildcard arm catches
+            // any future variant and falls back to a Debug-formatted label so the
+            // downstream consumer still gets a readable source string.
+            let source = match result.source {
                 ResolutionSource::WorldFunnel => "world_funnel".to_string(),
                 ResolutionSource::GenreFallback => "genre_fallback".to_string(),
+                other => format!("{other:?}").to_lowercase(),
             };
-            (jungian_id, rpg_role_id, npc_role_id, resolved.name, source)
+            (
+                jungian_id,
+                rpg_role_id,
+                npc_role_id,
+                result.resolved.name,
+                source,
+            )
         }
         Err(e) => {
             eprintln!("Archetype resolution failed: {e}");

@@ -1,0 +1,17 @@
+- name: Village Elder
+  description: "A wise elder who guides the community."
+  personality_traits:
+    - wise
+    - cautious
+  typical_classes:
+    - Wizard
+  typical_races:
+    - Human
+  stat_ranges:
+    Intelligence: [12, 18]
+    Wisdom: [14, 20]
+  inventory_hints:
+    - staff
+  dialogue_quirks:
+    - speaks in measured, deliberate sentences
+  disposition_default: 0

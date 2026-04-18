@@ -13,8 +13,13 @@
 
 #![warn(missing_docs)]
 
-/// Archetype resolution engine — base→genre→world inheritance chain.
-pub mod archetype_resolve;
+// Alias this crate under its external name so the `Layered` derive macro's
+// absolute paths (`::sidequest_genre::resolver::LayeredMerge`) resolve when
+// the derive is used from within this crate's own source files.
+extern crate self as sidequest_genre;
+
+/// Archetype resolution on the Layered Content Model framework.
+pub mod archetype;
 mod cache;
 mod error;
 mod genre_code;
@@ -26,10 +31,18 @@ pub mod models;
 /// Template-based name generator with corpus blending.
 pub mod names;
 mod resolve;
+/// Four-tier content resolver: Global → Genre → World → Culture provenance tracking.
+pub mod resolver;
+pub use resolver::*;
+/// Per-tier content schemas with `deny_unknown_fields` enforcement.
+pub mod schema;
 mod util;
 mod validate;
 
 pub use sidequest_protocol;
+
+/// `#[derive(Layered)]` proc macro, re-exported for consumers.
+pub use sidequest_genre_layered_derive::Layered;
 
 // Re-export the public API
 pub use cache::GenreCache;

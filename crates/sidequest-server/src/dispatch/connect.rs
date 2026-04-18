@@ -1568,16 +1568,18 @@ pub(crate) async fn dispatch_character_creation(
                                             .get(&world_slug)
                                             .and_then(|w| w.archetype_funnels.as_ref());
 
-                                        match sidequest_genre::archetype_resolve::resolve_archetype(
+                                        match sidequest_genre::archetype::resolve_archetype(
                                             jungian,
                                             rpg_role,
                                             base,
                                             constraints,
                                             world_funnels,
+                                            &genre_slug,
+                                            Some(&world_slug),
                                         ) {
-                                            Ok(resolved) => {
+                                            Ok(result) => {
                                                 character.resolved_archetype =
-                                                    Some(resolved.name.clone());
+                                                    Some(result.resolved.name.clone());
 
                                                 WatcherEventBuilder::new(
                                                     "archetype_resolution",
@@ -1586,14 +1588,18 @@ pub(crate) async fn dispatch_character_creation(
                                                 .field("event", "archetype.resolved")
                                                 .field("jungian", jungian)
                                                 .field("rpg_role", rpg_role)
-                                                .field("resolved_name", resolved.name.as_str())
                                                 .field(
-                                                    "source",
-                                                    format!("{:?}", resolved.resolution_source),
+                                                    "resolved_name",
+                                                    result.resolved.name.as_str(),
                                                 )
+                                                .field("source", format!("{:?}", result.source))
                                                 .field(
                                                     "faction",
-                                                    resolved.faction.as_deref().unwrap_or("none"),
+                                                    result
+                                                        .resolved
+                                                        .faction
+                                                        .as_deref()
+                                                        .unwrap_or("none"),
                                                 )
                                                 .field("genre", genre_slug.as_str())
                                                 .field("world", world_slug.as_str())

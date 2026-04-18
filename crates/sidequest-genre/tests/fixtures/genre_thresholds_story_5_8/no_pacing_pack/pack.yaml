@@ -1,0 +1,4 @@
+name: No Pacing Pack
+version: "0.1.0"
+description: "Minimal fixture pack without pacing.yaml — drama_thresholds must be None"
+min_sidequest_version: "0.1.0"

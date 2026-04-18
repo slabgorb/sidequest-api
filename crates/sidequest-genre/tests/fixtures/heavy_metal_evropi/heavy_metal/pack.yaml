@@ -1,0 +1,6 @@
+valid_pairings:
+  common:
+    - [sage, healer]
+genre_flavor:
+  sage:
+    speech_pattern: "measured"

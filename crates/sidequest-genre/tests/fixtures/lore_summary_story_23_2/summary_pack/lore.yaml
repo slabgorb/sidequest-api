@@ -1,0 +1,13 @@
+world_name: ""
+history: "A test world for verifying summary fields in factions and lore."
+geography: ""
+cosmology: ""
+factions:
+  - name: The Iron League
+    summary: "Merchant coalition controlling trade routes"
+    description: "A coalition of merchant families who control the major trade routes."
+    disposition: neutral
+  - name: The Verdant Circle
+    summary: "Druid council protecting ancient groves"
+    description: "Ancient druids who guard the sacred groves."
+    disposition: wary

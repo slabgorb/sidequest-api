@@ -1,0 +1,316 @@
+# Dogfight Interaction Table — hit_severity fixture for story 38-7 tests.
+#
+# Self-contained copy of the space_opera dogfight table with hit_severity
+# and damage_increments added per story 38-7 acceptance criteria.
+# This fixture lives in tests/fixtures/ and has NO dependency on sidequest-content.
+
+version: "0.1.0"
+starting_state: merge
+maneuvers_consumed: [straight, bank, loop, kill_rotation]
+
+damage_increments:
+  graze: 5
+  clean: 15
+  devastating: 30
+
+starting_hull: 10
+
+cells:
+
+  - pair: [straight, straight]
+    name: "Clean merge"
+    shape: "passive vs passive"
+    red_view:
+      target_bearing: "06"
+      target_range: close
+      target_aspect: tail_on
+      closure: opening
+      gun_solution: false
+    blue_view:
+      target_bearing: "06"
+      target_range: close
+      target_aspect: tail_on
+      closure: opening
+      gun_solution: false
+    narration_hint: >-
+      Both ships rip past each other. No shots.
+
+  - pair: [straight, bank]
+    name: "Red drills through, Blue breaks"
+    shape: "passive vs evasive"
+    red_view:
+      target_bearing: "0430"
+      target_range: close
+      target_aspect: quartering
+      closure: opening
+      gun_solution: false
+    blue_view:
+      target_bearing: "1030"
+      target_range: close
+      target_aspect: quartering
+      closure: opening
+      gun_solution: false
+    narration_hint: >-
+      Red holds the merge line. Blue snap-rolls off to starboard. No shots.
+
+  - pair: [straight, loop]
+    name: "Blue reverses onto Red's six"
+    shape: "passive vs offense — offense scores"
+    red_view:
+      target_bearing: "06"
+      target_range: close
+      target_aspect: head_on
+      closure: opening
+      gun_solution: false
+    blue_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: tail_on
+      closure: opening
+      gun_solution: true
+      hit_severity: clean
+    narration_hint: >-
+      Blue loops over the top and rolls out with Red's exhaust in the gunsight.
+
+  - pair: [straight, kill_rotation]
+    name: "Blue's flip-and-burn back-shot"
+    shape: "passive vs offense — offense scores"
+    red_view:
+      target_bearing: "06"
+      target_range: close
+      target_aspect: head_on
+      closure: opening_fast
+      gun_solution: false
+    blue_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: tail_on
+      closure: opening_fast
+      gun_solution: true
+      hit_severity: devastating
+    narration_hint: >-
+      Blue flips 180 degrees on its axis and fires back through Red's wake.
+
+  - pair: [bank, straight]
+    name: "Red breaks, Blue drills through"
+    shape: "evasive vs passive"
+    red_view:
+      target_bearing: "1030"
+      target_range: close
+      target_aspect: quartering
+      closure: opening
+      gun_solution: false
+    blue_view:
+      target_bearing: "0430"
+      target_range: close
+      target_aspect: quartering
+      closure: opening
+      gun_solution: false
+    narration_hint: >-
+      Red snap-rolls to starboard. No shots.
+
+  - pair: [bank, bank]
+    name: "Mirror break"
+    shape: "evasive vs evasive"
+    red_view:
+      target_bearing: "09"
+      target_range: medium
+      target_aspect: crossing
+      closure: opening
+      gun_solution: false
+    blue_view:
+      target_bearing: "09"
+      target_range: medium
+      target_aspect: crossing
+      closure: opening
+      gun_solution: false
+    narration_hint: >-
+      Both pilots commit to the break at the same instant. No shots.
+
+  - pair: [bank, loop]
+    name: "Red slips the loop"
+    shape: "evasive vs offense — evasive slips"
+    red_view:
+      target_bearing: "06"
+      target_range: medium
+      target_aspect: head_on
+      closure: opening
+      gun_solution: false
+    blue_view:
+      target_bearing: "1030"
+      target_range: medium
+      target_aspect: crossing
+      closure: opening
+      gun_solution: false
+    narration_hint: >-
+      Red carves the starboard break. Blue's loop ends on empty stars.
+
+  - pair: [bank, kill_rotation]
+    name: "Red banks past the back-shot"
+    shape: "evasive vs offense — evasive slips"
+    red_view:
+      target_bearing: "06"
+      target_range: close
+      target_aspect: head_on
+      closure: opening
+      gun_solution: false
+    blue_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: crossing
+      closure: opening_fast
+      gun_solution: false
+    narration_hint: >-
+      Red breaks just as Blue's attitude jets fire. No shots.
+
+  - pair: [loop, straight]
+    name: "Red reverses onto Blue's six"
+    shape: "offense vs passive — offense scores"
+    red_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: tail_on
+      closure: opening
+      gun_solution: true
+      hit_severity: clean
+    blue_view:
+      target_bearing: "06"
+      target_range: close
+      target_aspect: head_on
+      closure: opening
+      gun_solution: false
+    narration_hint: >-
+      Red loops and rolls out with Blue's exhaust in the gunsight.
+
+  - pair: [loop, bank]
+    name: "Blue slips the loop"
+    shape: "offense vs evasive — evasive slips"
+    red_view:
+      target_bearing: "1030"
+      target_range: medium
+      target_aspect: crossing
+      closure: opening
+      gun_solution: false
+    blue_view:
+      target_bearing: "06"
+      target_range: medium
+      target_aspect: head_on
+      closure: opening
+      gun_solution: false
+    narration_hint: >-
+      Red commits to the vertical. Blue breaks hard starboard. No shots.
+
+  - pair: [loop, loop]
+    name: "Twin loops — merge resumed"
+    shape: "offense vs offense — stalemate"
+    red_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: head_on
+      closure: stable
+      gun_solution: false
+    blue_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: head_on
+      closure: stable
+      gun_solution: false
+    narration_hint: >-
+      Twin loops. Neither got the shot.
+
+  - pair: [loop, kill_rotation]
+    name: "Mutual gunline — knife fight"
+    shape: "offense vs offense — mutual kill risk"
+    red_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: head_on
+      closure: opening
+      gun_solution: true
+      hit_severity: graze
+    blue_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: head_on
+      closure: opening
+      gun_solution: true
+      hit_severity: graze
+    narration_hint: >-
+      Both pilots are suddenly staring down each other's gun barrels.
+
+  - pair: [kill_rotation, straight]
+    name: "Red's flip-and-burn back-shot"
+    shape: "offense vs passive — offense scores"
+    red_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: tail_on
+      closure: opening_fast
+      gun_solution: true
+      hit_severity: devastating
+    blue_view:
+      target_bearing: "06"
+      target_range: close
+      target_aspect: head_on
+      closure: opening_fast
+      gun_solution: false
+    narration_hint: >-
+      Red flips 180 degrees and fires back at Blue's wake.
+
+  - pair: [kill_rotation, bank]
+    name: "Blue banks past the back-shot"
+    shape: "offense vs evasive — evasive slips"
+    red_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: crossing
+      closure: opening_fast
+      gun_solution: false
+    blue_view:
+      target_bearing: "06"
+      target_range: close
+      target_aspect: head_on
+      closure: opening
+      gun_solution: false
+    narration_hint: >-
+      Red's flip ends with a crossing silhouette. No shots.
+
+  - pair: [kill_rotation, loop]
+    name: "Mutual gunline — knife fight"
+    shape: "offense vs offense — mutual kill risk"
+    red_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: head_on
+      closure: opening
+      gun_solution: true
+      hit_severity: graze
+    blue_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: head_on
+      closure: opening
+      gun_solution: true
+      hit_severity: graze
+    narration_hint: >-
+      Both pilots end up looking down each other's gun barrels.
+
+  - pair: [kill_rotation, kill_rotation]
+    name: "Drift-through knife fight"
+    shape: "offense vs offense — mutual kill risk"
+    red_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: head_on
+      closure: stable
+      gun_solution: true
+      hit_severity: clean
+    blue_view:
+      target_bearing: "12"
+      target_range: close
+      target_aspect: head_on
+      closure: stable
+      gun_solution: true
+      hit_severity: clean
+    narration_hint: >-
+      Both ships drift through each other's space on pure inertia, guns trained on the other's nose.

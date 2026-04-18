@@ -700,7 +700,10 @@ fn genre_packs_path() -> std::path::PathBuf {
         return std::path::PathBuf::from(path);
     }
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../../sidequest-content/genre_packs")
+    manifest
+        .join("../../..")
+        .join("sidequest-content")
+        .join("genre_packs")
 }
 
 #[test]

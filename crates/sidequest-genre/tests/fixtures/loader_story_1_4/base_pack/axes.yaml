@@ -1,0 +1,8 @@
+definitions:
+  - id: grit
+    name: Grit
+    description: "How harsh and unforgiving the world feels."
+    poles:
+      - soft
+      - brutal
+    default: 0.5

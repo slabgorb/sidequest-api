@@ -13,14 +13,11 @@
 use sidequest_genre::{CartographyConfig, Culture, Faction, WorldLore};
 use std::path::PathBuf;
 
-/// Locate the genre_packs directory relative to this crate.
-fn genre_packs_path() -> PathBuf {
-    if let Ok(p) = std::env::var("GENRE_PACKS_PATH") {
-        PathBuf::from(p)
-    } else {
-        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        manifest.join("../../../sidequest-content/genre_packs")
-    }
+/// Fixture pack with summaries on all factions, cultures, and regions.
+/// Self-contained — no dependency on sidequest-content.
+fn summary_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/lore_summary_story_23_2/summary_pack")
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -252,20 +249,23 @@ factions:
 
 #[test]
 fn low_fantasy_loads_with_summaries() {
-    let path = genre_packs_path().join("low_fantasy");
+    // Replaced sidequest-content/low_fantasy with a self-contained fixture pack
+    // that has genre-level factions with summaries and cultures with summaries.
+    // The assertion shape is identical: verifies the loader populates summary
+    // fields on Faction and Culture when they're present in the YAML.
+    let path = summary_fixture_path();
     assert!(
         path.exists(),
-        "low_fantasy genre pack not found at {}",
+        "fixture pack not found at {} — fixture must exist",
         path.display()
     );
 
-    let pack =
-        sidequest_genre::load_genre_pack(&path).expect("should load low_fantasy with summaries");
+    let pack = sidequest_genre::load_genre_pack(&path).expect("should load summary fixture pack");
 
     // Verify genre-level factions have summaries
     assert!(
         !pack.lore.factions.is_empty(),
-        "low_fantasy should have genre-level factions"
+        "fixture pack should have genre-level factions"
     );
     for faction in &pack.lore.factions {
         assert!(
@@ -278,7 +278,7 @@ fn low_fantasy_loads_with_summaries() {
     // Verify cultures have summaries
     assert!(
         !pack.cultures.is_empty(),
-        "low_fantasy should have cultures"
+        "fixture pack should have cultures"
     );
     for culture in &pack.cultures {
         assert!(
@@ -291,15 +291,17 @@ fn low_fantasy_loads_with_summaries() {
 
 #[test]
 fn low_fantasy_worlds_have_region_summaries() {
-    let path = genre_packs_path().join("low_fantasy");
-    let pack = sidequest_genre::load_genre_pack(&path).expect("should load low_fantasy");
+    // Replaced sidequest-content/low_fantasy with a self-contained fixture pack
+    // that has a world with regions, each carrying a summary field.
+    // Assertion shape is identical: loader must populate Region.summary from YAML.
+    let path = summary_fixture_path();
+    let pack = sidequest_genre::load_genre_pack(&path).expect("should load summary fixture pack");
 
     // Cartography lives on World, not GenrePack
-    // Some worlds use hierarchical navigation (world_graph) instead of regions
     let mut checked_any = false;
     for (world_slug, world) in &pack.worlds {
         if world.cartography.regions.is_empty() {
-            continue; // hierarchical/room_graph worlds have no regions
+            continue;
         }
         checked_any = true;
         for (slug, region) in &world.cartography.regions {
@@ -313,14 +315,17 @@ fn low_fantasy_worlds_have_region_summaries() {
     }
     assert!(
         checked_any,
-        "At least one low_fantasy world should have regions"
+        "fixture pack should have at least one world with regions"
     );
 }
 
 #[test]
 fn low_fantasy_world_lore_factions_have_summaries() {
-    let path = genre_packs_path().join("low_fantasy");
-    let pack = sidequest_genre::load_genre_pack(&path).expect("should load low_fantasy");
+    // Replaced sidequest-content/low_fantasy with a self-contained fixture pack
+    // that has world-level lore with factions carrying summary fields.
+    // Assertion shape is identical: WorldLore.factions must each have a non-empty summary.
+    let path = summary_fixture_path();
+    let pack = sidequest_genre::load_genre_pack(&path).expect("should load summary fixture pack");
 
     // World-level lore also contains factions
     for (world_slug, world) in &pack.worlds {
