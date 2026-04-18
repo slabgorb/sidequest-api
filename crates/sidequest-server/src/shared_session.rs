@@ -5,6 +5,7 @@
 //! genre:world instance. Per-player state lives in `PlayerState`.
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -264,6 +265,18 @@ pub struct SharedGameSession {
     /// Keyed by `request_id`. Inserted when DiceRequest is broadcast,
     /// consumed when DiceThrow arrives and resolution completes.
     pub pending_dice_requests: HashMap<String, sidequest_protocol::DiceRequestPayload>,
+    /// Story 37-20: timestamp (monotonic) each pending request was first
+    /// inserted via [`Self::insert_pending_dice_request`]. Populated only
+    /// by the chokepoint so the retry detector can flag requests whose
+    /// DiceThrow never came back. Re-inserting the same `request_id`
+    /// preserves the original timestamp — a lost DiceRequest that is
+    /// re-broadcast must keep aging, otherwise the wedge never resolves.
+    /// Entries may outlive their corresponding pending_dice_requests
+    /// entry when callers (dice_dispatch, phantom-player cleanup,
+    /// session.clear) remove requests directly; [`Self::expired_pending_dice_requests`]
+    /// iterates `pending_dice_requests` and only reads this map, so
+    /// orphaned timestamps never surface as retries.
+    pub(crate) pending_dice_request_issued_at: HashMap<String, Instant>,
     /// Dice roll outcome from the most recent resolution (story 34-9).
     /// Set by the DiceThrow handler after resolution; consumed (taken) by the
     /// next PlayerAction dispatch to inject [DICE_OUTCOME: X] into the narrator prompt.
@@ -329,6 +342,7 @@ impl SharedGameSession {
             scene_count: 0,
             region_names: vec![],
             pending_dice_requests: HashMap::new(),
+            pending_dice_request_issued_at: HashMap::new(),
             pending_roll_outcome: None,
             pending_replay_action: None,
             pending_replay_beat_id: None,
@@ -461,6 +475,66 @@ impl SharedGameSession {
     /// [`Self::contains_player`] for the perception_filters roster.
     pub fn has_perception_filter(&self, player_id: &str) -> bool {
         self.perception_filters.contains_key(player_id)
+    }
+
+    /// Story 37-20 chokepoint: insert a pending DiceRequest and record
+    /// its `issued_at` timestamp so the retry detector can flag it when
+    /// the matching DiceThrow never arrives.
+    ///
+    /// **Single-issuer invariant.** This is the *only* sanctioned way to
+    /// add an entry to `pending_dice_requests`. Direct `.insert` calls
+    /// from outside this module are caught by the source-grep wiring
+    /// test in `dice_request_lifecycle_story_37_20_tests.rs`.
+    ///
+    /// **Idempotent.** Re-inserting the same `request_id` leaves both
+    /// the payload and the `issued_at` timestamp untouched. This makes
+    /// retry-re-broadcast safe: the server can re-emit a DiceRequest
+    /// with the same id without resetting the aging clock, so a wedged
+    /// request keeps advancing toward eventual surfacing on the GM
+    /// panel rather than silently restarting its timer.
+    pub fn insert_pending_dice_request(
+        &mut self,
+        request: sidequest_protocol::DiceRequestPayload,
+    ) {
+        let request_id = request.request_id.clone();
+        if self.pending_dice_requests.contains_key(&request_id) {
+            // Idempotent — preserve original payload and issued_at.
+            return;
+        }
+        self.pending_dice_requests.insert(request_id.clone(), request);
+        self.pending_dice_request_issued_at
+            .insert(request_id, Instant::now());
+    }
+
+    /// Story 37-20 retry detector: returns clones of every pending
+    /// DiceRequest whose `issued_at + timeout <= now`. Callers re-emit
+    /// these (same `request_id`) and hit [`crate::emit_dice_request_recovery`]
+    /// so the GM panel's dice channel surfaces the retry.
+    ///
+    /// Iterates `pending_dice_requests` (the canonical set) and reads
+    /// `pending_dice_request_issued_at` by key. Requests that were
+    /// removed directly from `pending_dice_requests` (dice_dispatch
+    /// resolution, phantom-player cleanup, session clear) never surface
+    /// here — the canonical map is the source of truth. Entries without
+    /// a recorded `issued_at` (there shouldn't be any in production,
+    /// but defense in depth) are treated as "just inserted" and never
+    /// flagged expired.
+    pub fn expired_pending_dice_requests(
+        &self,
+        now: Instant,
+        timeout: Duration,
+    ) -> Vec<sidequest_protocol::DiceRequestPayload> {
+        self.pending_dice_requests
+            .iter()
+            .filter_map(|(request_id, payload)| {
+                let issued_at = self.pending_dice_request_issued_at.get(request_id)?;
+                if now.saturating_duration_since(*issued_at) >= timeout {
+                    Some(payload.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Subscribe to the session broadcast channel.

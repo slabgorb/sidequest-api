@@ -135,6 +135,23 @@ pub fn emit_dice_result_broadcast(
         .send();
 }
 
+/// Story 37-20: emit a `dice_request.recovery` WatcherEvent when the
+/// retry detector re-broadcasts a pending DiceRequest whose original
+/// frame was apparently lost. StateTransition + Warning severity so the
+/// GM panel's dice channel visibly distinguishes a retry from an
+/// initial send — the lie detector for "the session is wedged and
+/// nobody noticed."
+pub fn emit_dice_request_recovery(request: &sidequest_protocol::DiceRequestPayload) {
+    WatcherEventBuilder::new("dice", WatcherEventType::StateTransition)
+        .severity(sidequest_telemetry::Severity::Warn)
+        .field("event", "dice_request.recovery")
+        .field("request_id", &request.request_id)
+        .field("rolling_player", &request.rolling_player_id)
+        .field("stat", &request.stat)
+        .field("difficulty", request.difficulty.get())
+        .send();
+}
+
 // ---------------------------------------------------------------------------
 // Confrontation Defs — lookup helper (Story 28-1)
 // ---------------------------------------------------------------------------
@@ -2340,8 +2357,7 @@ async fn dispatch_message(
             let holder_guard = shared_session_holder.lock().await;
             if let Some(ref ss_arc) = *holder_guard {
                 let mut ss = ss_arc.lock().await;
-                ss.pending_dice_requests
-                    .insert(dice_req.request_id.clone(), dice_req.clone());
+                ss.insert_pending_dice_request(dice_req.clone());
                 ss.pending_replay_action = Some(replay_action);
                 ss.pending_replay_beat_id = Some(beat_id_str);
                 ss.broadcast(GameMessage::DiceRequest {
@@ -3154,8 +3170,7 @@ async fn dispatch_message(
                                 let holder_guard = shared_session_holder.lock().await;
                                 if let Some(ref ss_arc) = *holder_guard {
                                     let mut ss = ss_arc.lock().await;
-                                    ss.pending_dice_requests
-                                        .insert(dice_req.request_id.clone(), dice_req);
+                                    ss.insert_pending_dice_request(dice_req);
                                     let action_nbs =
                                         sidequest_protocol::NonBlankString::new(&action_text)
                                             .expect(
