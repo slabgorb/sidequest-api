@@ -78,7 +78,7 @@ fn make_request(id: &str, pool: Vec<DieSpec>, modifier: i32, dc: u32) -> DiceReq
         character_name: "Kira".to_string(),
         dice: pool,
         modifier,
-        stat: "influence".to_string(),
+        stat: sidequest_protocol::Stat::new("influence").unwrap(),
         difficulty: NonZeroU32::new(dc).unwrap(),
         context: "test".to_string(),
     }

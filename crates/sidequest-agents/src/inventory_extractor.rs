@@ -61,7 +61,11 @@ pub enum ExtractionOutcome {
     /// Claude explicitly returned an empty array — no mutations detected.
     Clean,
     /// The response could not be parsed as a JSON array of mutations.
-    ParseFailed { raw_response: String },
+    ParseFailed {
+        /// The raw LLM response that failed JSON parsing, preserved for
+        /// diagnostics and GM-panel telemetry.
+        raw_response: String,
+    },
 }
 
 /// The type of inventory mutation.

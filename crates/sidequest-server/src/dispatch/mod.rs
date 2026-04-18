@@ -1917,7 +1917,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     );
                     WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
                         .field("event", "encounter.sealed_letter.resolution_failed")
-                        .field("error", format!("{e}"))
+                        .field("error", e.to_string())
                         .field("encounter_type", &encounter_type)
                         .severity(Severity::Warn)
                         .send();

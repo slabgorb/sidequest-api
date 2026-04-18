@@ -30,7 +30,7 @@ mod tests {
                 count: NonZeroU8::new(1).unwrap(),
             }],
             modifier: 3,
-            stat: "dexterity".to_string(),
+            stat: sidequest_protocol::Stat::new("dexterity").unwrap(),
             difficulty: NonZeroU32::new(15).unwrap(),
             context: "The lock resists your touch...".to_string(),
         }

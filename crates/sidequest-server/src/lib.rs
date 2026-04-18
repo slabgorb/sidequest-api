@@ -2334,6 +2334,32 @@ async fn dispatch_message(
         let beat_metric_delta = beat.metric_delta;
         let beat_id_str = payload.beat_id.clone();
 
+        // Validate-then-mutate: canonicalize the stat BEFORE `apply_beat`
+        // touches encounter state (review cycle-2 C1). Otherwise a blank or
+        // malformed stat_check would leave the encounter half-applied — beat
+        // consumed, metric advanced, dice gate never opened.
+        let stat = match sidequest_protocol::Stat::new(&stat_check) {
+            Ok(s) => s,
+            Err(e) => {
+                WatcherEventBuilder::new("dice", WatcherEventType::ValidationWarning)
+                    .field("event", "dice.invalid_stat")
+                    .field("stat_raw", stat_check.as_str())
+                    .field("beat_id", beat_id_str.as_str())
+                    .field("reason", e.to_string())
+                    .severity(Severity::Error)
+                    .send();
+                tracing::error!(
+                    stat = %stat_check,
+                    beat = %beat_id_str,
+                    "invalid stat_check — rejecting beat dispatch before apply_beat mutates state"
+                );
+                return vec![error_response(
+                    player_id,
+                    &format!("Invalid stat '{}' on beat '{}'", stat_check, beat_id_str),
+                )];
+            }
+        };
+
         // Apply beat deterministically — mechanical state change happens HERE,
         // before the narrator runs. The narrator only describes the outcome.
         if let Err(e) = encounter.apply_beat(&beat_id_str, def) {
@@ -2377,7 +2403,7 @@ async fn dispatch_message(
                 count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
             }],
             modifier: char_stat_modifier,
-            stat: stat_check.clone(),
+            stat,
             difficulty,
             context: format!("{} — {} check", beat_label, stat_check),
         };
@@ -3150,16 +3176,104 @@ async fn dispatch_message(
                         .map(|pack| pack.rules.confrontations.clone())
                         .unwrap_or_default()
                 };
+                // Emit a ValidationWarning on each skip path so the GM panel
+                // sees beat-dispatch failures instead of a silent no-op
+                // (review cycle-3 edge-hunter finding). Dice resolution still
+                // falls through to `handle_dice_throw` below — which will
+                // surface an "unknown request_id" error cleanly — but the
+                // beat-registration failure gets its own structured signal.
+                if snapshot.encounter.is_none() {
+                    WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                        .field("event", "beat_dispatch.no_active_encounter")
+                        .field("beat_id", beat_id.as_str())
+                        .severity(Severity::Warn)
+                        .send();
+                    tracing::warn!(
+                        beat = %beat_id,
+                        "client-side beat+dice: no active encounter — skipping beat registration"
+                    );
+                }
                 if let Some(ref mut encounter) = snapshot.encounter {
-                    if let Some(def) =
-                        crate::find_confrontation_def(&conf_defs, &encounter.encounter_type)
-                    {
-                        if let Some(beat) = def.beats.iter().find(|b| b.id == *beat_id) {
+                    let def_opt =
+                        crate::find_confrontation_def(&conf_defs, &encounter.encounter_type);
+                    if def_opt.is_none() {
+                        WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                            .field("event", "beat_dispatch.no_confrontation_def")
+                            .field("beat_id", beat_id.as_str())
+                            .field("encounter_type", &encounter.encounter_type)
+                            .severity(Severity::Warn)
+                            .send();
+                        tracing::warn!(
+                            beat = %beat_id,
+                            encounter_type = %encounter.encounter_type,
+                            "client-side beat+dice: no confrontation def for encounter type — skipping beat registration"
+                        );
+                    }
+                    if let Some(def) = def_opt {
+                        let beat_opt = def.beats.iter().find(|b| b.id == *beat_id);
+                        if beat_opt.is_none() {
+                            WatcherEventBuilder::new(
+                                "encounter",
+                                WatcherEventType::ValidationWarning,
+                            )
+                            .field("event", "beat_dispatch.unknown_beat_id")
+                            .field("beat_id", beat_id.as_str())
+                            .field("encounter_type", &encounter.encounter_type)
+                            .field(
+                                "available_ids",
+                                def.beats
+                                    .iter()
+                                    .map(|b| b.id.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(","),
+                            )
+                            .severity(Severity::Warn)
+                            .send();
+                            tracing::warn!(
+                                beat = %beat_id,
+                                encounter_type = %encounter.encounter_type,
+                                "client-side beat+dice: unknown beat_id — skipping beat registration"
+                            );
+                        }
+                        if let Some(beat) = beat_opt {
                             let stat_check = beat.stat_check.clone();
                             let beat_label = beat.label.clone();
                             let metric_name = encounter.metric.name.clone();
                             let metric_before = encounter.metric.current;
                             let beat_metric_delta = beat.metric_delta;
+
+                            // Validate-then-mutate (review cycle-2 C1):
+                            // canonicalize the stat BEFORE apply_beat mutates
+                            // encounter state. Otherwise a blank/malformed
+                            // stat_check leaves the encounter half-applied
+                            // with no dice gate ever opening.
+                            let stat = match sidequest_protocol::Stat::new(&stat_check) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    WatcherEventBuilder::new(
+                                        "dice",
+                                        WatcherEventType::ValidationWarning,
+                                    )
+                                    .field("event", "dice.invalid_stat")
+                                    .field("stat_raw", stat_check.as_str())
+                                    .field("beat_id", beat_id.as_str())
+                                    .field("reason", e.to_string())
+                                    .severity(Severity::Error)
+                                    .send();
+                                    tracing::error!(
+                                        stat = %stat_check,
+                                        beat = %beat_id,
+                                        "invalid stat_check — rejecting beat dispatch before apply_beat mutates state"
+                                    );
+                                    return vec![error_response(
+                                        player_id,
+                                        &format!(
+                                            "Invalid stat '{}' on beat '{}'",
+                                            stat_check, beat_id
+                                        ),
+                                    )];
+                                }
+                            };
 
                             if let Err(e) = encounter.apply_beat(beat_id, def) {
                                 return vec![error_response(
@@ -3202,7 +3316,7 @@ async fn dispatch_message(
                                     count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
                                 }],
                                 modifier: char_stat_modifier,
-                                stat: stat_check.clone(),
+                                stat,
                                 difficulty,
                                 context: format!("{} — {} check", beat_label, stat_check),
                             };

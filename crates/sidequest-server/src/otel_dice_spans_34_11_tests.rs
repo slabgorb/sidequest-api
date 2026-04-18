@@ -41,7 +41,7 @@ fn test_dice_request() -> DiceRequestPayload {
         request_id: "test-req-001".to_string(),
         rolling_player_id: "player-1".to_string(),
         character_name: "Kael Ashblade".to_string(),
-        stat: "strength".to_string(),
+        stat: sidequest_protocol::Stat::new("strength").unwrap(),
         modifier: 3,
         difficulty: std::num::NonZeroU32::new(15).unwrap(),
         dice: vec![DieSpec {
@@ -92,8 +92,8 @@ fn dice_request_sent_emits_watcher_event() {
     );
     assert_eq!(
         event.fields.get("stat").and_then(|v| v.as_str()),
-        Some("strength"),
-        "stat field must be present"
+        Some("STRENGTH"),
+        "stat field must be present in canonical (UPPERCASE) form (story 37-17)"
     );
     assert!(
         event.fields.contains_key("difficulty"),
