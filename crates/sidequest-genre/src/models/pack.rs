@@ -102,6 +102,21 @@ pub struct World {
     pub portrait_manifest: Vec<PortraitManifestEntry>,
     /// World-level archetype funnels.
     pub archetype_funnels: Option<ArchetypeFunnels>,
+    /// World-level opening hooks from `openings.yaml`.
+    ///
+    /// When present and non-empty, these replace the genre-tier
+    /// `GenrePack::openings` list at chargen time. When absent or empty,
+    /// consumers fall back to the genre-tier list.
+    ///
+    /// Interim surgical override ahead of the full Phase 2 layered-content
+    /// migration (see `docs/superpowers/specs/2026-04-17-layered-content-model-design.md`).
+    pub openings: Vec<OpeningHook>,
+    /// World-level character creation scenes from `char_creation.yaml`.
+    ///
+    /// When present and non-empty, these replace the genre-tier
+    /// `GenrePack::char_creation` list. When absent or empty, consumers
+    /// fall back to the genre-tier list.
+    pub char_creation: Vec<CharCreationScene>,
 }
 
 /// A character entry in a portrait manifest — provides rich visual descriptions

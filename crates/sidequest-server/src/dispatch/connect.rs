@@ -1237,11 +1237,21 @@ pub(crate) async fn start_character_creation(
         world_context_out.push_str(&culture_ref);
     }
 
-    // Select a random opening hook if the genre pack provides them
-    if !pack.openings.is_empty() {
+    // Select a random opening hook — prefer world-tier list when present,
+    // fall back to genre-tier list. Mirrors the `cultures` lookup above and
+    // stops genre-tier openings (e.g. Long Foundry covenant hooks under
+    // heavy_metal) from leaking into every world's chargen.
+    let (openings, openings_tier) = pack
+        .worlds
+        .get(world_slug)
+        .filter(|w| !w.openings.is_empty())
+        .map(|w| (w.openings.as_slice(), "world"))
+        .unwrap_or((pack.openings.as_slice(), "genre"));
+
+    if !openings.is_empty() {
         use rand::Rng;
-        let idx = rand::rng().random_range(0..pack.openings.len());
-        let hook = &pack.openings[idx];
+        let idx = rand::rng().random_range(0..openings.len());
+        let hook = &openings[idx];
 
         // Build opening directive — injected into Early zone on turn 0 only via DispatchContext
         let mut directive = format!(
@@ -1257,14 +1267,34 @@ pub(crate) async fn start_character_creation(
         *opening_seed_out = Some(hook.first_turn_seed.clone());
 
         tracing::info!(
-            genre = %genre,
+            otel_event = "content.resolve",
+            content_axis = "openings",
+            content_genre = %genre,
+            content_world = %world_slug,
+            content_source_tier = openings_tier,
             hook_id = %hook.id,
             archetype = %hook.archetype,
             "opening_hook_selected"
         );
     }
 
-    let scenes = pack.char_creation.clone();
+    // Prefer world-tier chargen scenes when present, fall back to genre-tier.
+    let (scenes, char_creation_tier) = pack
+        .worlds
+        .get(world_slug)
+        .filter(|w| !w.char_creation.is_empty())
+        .map(|w| (w.char_creation.clone(), "world"))
+        .unwrap_or_else(|| (pack.char_creation.clone(), "genre"));
+
+    tracing::info!(
+        otel_event = "content.resolve",
+        content_axis = "char_creation",
+        content_genre = %genre,
+        content_world = %world_slug,
+        content_source_tier = char_creation_tier,
+        scene_count = scenes.len(),
+        "char_creation_scenes_selected"
+    );
 
     if scenes.is_empty() {
         tracing::warn!(genre = %genre, "No character creation scenes");
