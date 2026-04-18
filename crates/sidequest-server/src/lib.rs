@@ -2299,6 +2299,32 @@ async fn dispatch_message(
         let difficulty =
             std::num::NonZeroU32::new(raw_dc).expect("raw_dc is clamped >= 10, always nonzero");
         let char_display_name = character_name.as_deref().unwrap_or("Unknown").to_string();
+        // Canonicalize stat at the wire boundary. In principle `validate.rs`
+        // rejects blank stat_check at pack load — but `load_genre_pack()` does
+        // NOT auto-invoke `pack.validate()` (phase-2 call), so a misauthored
+        // beat can slip through. Surface it as a ValidationWarning + error
+        // frame rather than panicking the whole session (37-17 review B1).
+        let stat = match sidequest_protocol::Stat::new(&stat_check) {
+            Ok(s) => s,
+            Err(e) => {
+                WatcherEventBuilder::new("dice", WatcherEventType::ValidationWarning)
+                    .field("event", "dice.invalid_stat")
+                    .field("stat_raw", stat_check.as_str())
+                    .field("beat_id", beat_id_str.as_str())
+                    .field("reason", e.to_string())
+                    .severity(Severity::Error)
+                    .send();
+                tracing::error!(
+                    stat = %stat_check,
+                    beat = %beat_id_str,
+                    "invalid stat_check for DiceRequest — rejecting beat dispatch"
+                );
+                return vec![error_response(
+                    player_id,
+                    &format!("Invalid stat '{}' on beat '{}'", stat_check, beat_id_str),
+                )];
+            }
+        };
         let dice_req = DiceRequestPayload {
             request_id: uuid::Uuid::new_v4().to_string(),
             rolling_player_id: player_id.to_string(),
@@ -2308,11 +2334,7 @@ async fn dispatch_message(
                 count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
             }],
             modifier: char_stat_modifier,
-            // Canonicalize at the wire boundary. stat_check comes from an
-            // already-validated BeatDef (validate.rs checks it matches an
-            // ability score via to_uppercase), so blank is unreachable here.
-            stat: sidequest_protocol::Stat::new(&stat_check)
-                .expect("BeatDef.stat_check is validated non-blank at genre pack load"),
+            stat,
             difficulty,
             context: format!("{} — {} check", beat_label, stat_check),
         };
@@ -3129,6 +3151,37 @@ async fn dispatch_message(
                                 std::num::NonZeroU32::new(raw_dc).expect("raw_dc clamped >= 10");
                             let char_name =
                                 character_name.as_deref().unwrap_or("Unknown").to_string();
+                            // Same graceful wire-boundary canonicalization as
+                            // the first dispatch path — don't panic on bad
+                            // YAML, emit a ValidationWarning and an error
+                            // frame instead (37-17 review B1).
+                            let stat = match sidequest_protocol::Stat::new(&stat_check) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    WatcherEventBuilder::new(
+                                        "dice",
+                                        WatcherEventType::ValidationWarning,
+                                    )
+                                    .field("event", "dice.invalid_stat")
+                                    .field("stat_raw", stat_check.as_str())
+                                    .field("beat_id", beat_id.as_str())
+                                    .field("reason", e.to_string())
+                                    .severity(Severity::Error)
+                                    .send();
+                                    tracing::error!(
+                                        stat = %stat_check,
+                                        beat = %beat_id,
+                                        "invalid stat_check for DiceRequest — rejecting beat dispatch"
+                                    );
+                                    return vec![error_response(
+                                        player_id,
+                                        &format!(
+                                            "Invalid stat '{}' on beat '{}'",
+                                            stat_check, beat_id
+                                        ),
+                                    )];
+                                }
+                            };
                             let dice_req = DiceRequestPayload {
                                 request_id: payload.request_id.clone(),
                                 rolling_player_id: player_id.to_string(),
@@ -3138,11 +3191,7 @@ async fn dispatch_message(
                                     count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
                                 }],
                                 modifier: char_stat_modifier,
-                                // Same boundary canonicalization as the first
-                                // dispatch path above — validate.rs guarantees
-                                // stat_check is non-blank.
-                                stat: sidequest_protocol::Stat::new(&stat_check)
-                                    .expect("BeatDef.stat_check is validated non-blank at genre pack load"),
+                                stat,
                                 difficulty,
                                 context: format!("{} — {} check", beat_label, stat_check),
                             };

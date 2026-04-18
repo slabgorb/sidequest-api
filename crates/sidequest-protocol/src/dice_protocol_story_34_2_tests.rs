@@ -1068,3 +1068,139 @@ fn all_new_dice_public_types_reachable_via_crate_root() {
     assert_eq!(_result_payload.total, 17);
     assert!(matches!(_outcome, RollOutcome::Success));
 }
+
+// ============================================================================
+// Story 37-17 — wire-boundary canonicalization
+//
+// Proves the story's core invariant at the DiceRequestPayload integration
+// level (not just the Stat newtype in isolation): JSON coming off the wire
+// with ANY casing lands as the canonical UPPERCASE form on the deserialized
+// payload, and re-serializing emits that same canonical form.
+// ============================================================================
+
+#[test]
+fn story_37_17_payload_canonicalizes_lowercase_stat_on_deserialize() {
+    let json = r#"{
+        "request_id": "req-1",
+        "rolling_player_id": "p1",
+        "character_name": "Kira",
+        "dice": [{"sides": 20, "count": 1}],
+        "modifier": 0,
+        "stat": "influence",
+        "difficulty": 15,
+        "context": "social check"
+    }"#;
+    let payload: DiceRequestPayload =
+        serde_json::from_str(json).expect("lowercase stat must deserialize");
+    assert_eq!(
+        payload.stat.as_str(),
+        "INFLUENCE",
+        "wire-boundary canonicalization: lowercase input must land as UPPERCASE on the payload"
+    );
+}
+
+#[test]
+fn story_37_17_payload_canonicalizes_mixed_case_stat_on_deserialize() {
+    let json = r#"{
+        "request_id": "req-2",
+        "rolling_player_id": "p1",
+        "character_name": "Kira",
+        "dice": [{"sides": 20, "count": 1}],
+        "modifier": 0,
+        "stat": "Nerve",
+        "difficulty": 15,
+        "context": "nerve check"
+    }"#;
+    let payload: DiceRequestPayload =
+        serde_json::from_str(json).expect("mixed-case stat must deserialize");
+    assert_eq!(payload.stat.as_str(), "NERVE");
+}
+
+#[test]
+fn story_37_17_payload_preserves_uppercase_stat_idempotently() {
+    // Already-uppercase input must survive canonicalization unchanged —
+    // guards against a future accidental to_lowercase() or similar.
+    let json = r#"{
+        "request_id": "req-3",
+        "rolling_player_id": "p1",
+        "character_name": "Kira",
+        "dice": [{"sides": 20, "count": 1}],
+        "modifier": 0,
+        "stat": "CUNNING",
+        "difficulty": 15,
+        "context": "cunning check"
+    }"#;
+    let payload: DiceRequestPayload =
+        serde_json::from_str(json).expect("uppercase stat must deserialize");
+    assert_eq!(payload.stat.as_str(), "CUNNING");
+}
+
+#[test]
+fn story_37_17_serialize_emits_canonical_uppercase_regardless_of_input() {
+    // Deserialize mixed-case, re-serialize, parse the JSON back — the wire
+    // form MUST be uppercase so two sessions with different narrator casings
+    // produce byte-identical payloads.
+    let mixed_json = r#"{
+        "request_id": "req-4",
+        "rolling_player_id": "p1",
+        "character_name": "Kira",
+        "dice": [{"sides": 20, "count": 1}],
+        "modifier": 0,
+        "stat": "Strength",
+        "difficulty": 15,
+        "context": "lift the gate"
+    }"#;
+    let payload: DiceRequestPayload = serde_json::from_str(mixed_json).unwrap();
+    let emitted = serde_json::to_value(&payload).unwrap();
+    assert_eq!(
+        emitted.get("stat").and_then(|v| v.as_str()),
+        Some("STRENGTH"),
+        "re-serialized wire form must be canonical UPPERCASE — this is what fixes the casing-drift session-to-session inconsistency"
+    );
+}
+
+#[test]
+fn story_37_17_blank_stat_at_wire_surfaces_blank_stat_error() {
+    // Whitespace-only stat must reject at deserialize — the newtype path
+    // routes through Stat::new which rejects blanks, and the Raw → Payload
+    // TryFrom maps that into DiceRequestPayloadError::BlankStat.
+    let json = r#"{
+        "request_id": "req-5",
+        "rolling_player_id": "p1",
+        "character_name": "Kira",
+        "dice": [{"sides": 20, "count": 1}],
+        "modifier": 0,
+        "stat": "   ",
+        "difficulty": 15,
+        "context": "blank"
+    }"#;
+    let result: Result<DiceRequestPayload, _> = serde_json::from_str(json);
+    assert!(
+        result.is_err(),
+        "whitespace-only stat must fail deserialization at the wire boundary"
+    );
+}
+
+#[test]
+fn story_37_17_empty_dice_pool_takes_priority_over_blank_stat() {
+    // Pin the current error-ordering in the Raw TryFrom: dice pool is
+    // checked before stat. Either error is correct from a "reject bad
+    // input" standpoint, but the ordering should be deterministic so
+    // downstream consumers get a stable error surface.
+    let json = r#"{
+        "request_id": "req-6",
+        "rolling_player_id": "p1",
+        "character_name": "Kira",
+        "dice": [],
+        "modifier": 0,
+        "stat": "   ",
+        "difficulty": 15,
+        "context": "both bad"
+    }"#;
+    let result: Result<DiceRequestPayload, serde_json::Error> = serde_json::from_str(json);
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("dice pool") || err_msg.to_lowercase().contains("empty"),
+        "when both dice pool and stat are bad, EmptyDicePool must win (got: {err_msg})"
+    );
+}

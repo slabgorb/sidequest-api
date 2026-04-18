@@ -92,8 +92,8 @@ fn dice_request_sent_emits_watcher_event() {
     );
     assert_eq!(
         event.fields.get("stat").and_then(|v| v.as_str()),
-        Some("strength"),
-        "stat field must be present"
+        Some("STRENGTH"),
+        "stat field must be present in canonical (UPPERCASE) form (story 37-17)"
     );
     assert!(
         event.fields.contains_key("difficulty"),
