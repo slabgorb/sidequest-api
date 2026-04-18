@@ -240,6 +240,52 @@ pub struct CharacterBuilder {
     equipment_tables: Option<EquipmentTables>,
 }
 
+/// Return every `{...}` substring in `rendered` whose key is not one of
+/// the known interpolator tokens (`{name}`, `{class}`, `{race}`).
+///
+/// Used by `CharacterBuilder::interpolate_scene_narration` to surface
+/// author-typo'd or unsupported placeholder keys via one OTEL Warn event
+/// per offending token. Returning only the first match would let a second
+/// typo in the same narration leak silently to the client; this scanner
+/// is exhaustive by contract.
+///
+/// The returned slices borrow from `rendered` to avoid an allocation on
+/// what is by construction a cold Warn path.
+pub(crate) fn find_unrecognized_tokens(rendered: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let bytes = rendered.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'{' {
+            i += 1;
+            continue;
+        }
+        // Scan forward from `i+1` for the matching `}`. Operating on byte
+        // indices is safe here because `{` and `}` are single-byte ASCII
+        // and any multi-byte UTF-8 continuation byte has its high bit set,
+        // so we cannot land inside a codepoint by searching for these two
+        // literal bytes.
+        let end_rel = rendered[i + 1..].find('}');
+        let (token_end, next_i) = match end_rel {
+            Some(e) => {
+                // Include closing `}`, resume scanning just past it.
+                let end = i + 1 + e + 1;
+                (end, end)
+            }
+            None => {
+                // Unclosed — report the rest of the string and stop.
+                (rendered.len(), rendered.len())
+            }
+        };
+        let token = &rendered[i..token_end];
+        if !matches!(token, "{name}" | "{class}" | "{race}") {
+            out.push(token);
+        }
+        i = next_i;
+    }
+    out
+}
+
 impl CharacterBuilder {
     /// Create a new builder. Panics if `scenes` is empty.
     pub fn new(
@@ -481,6 +527,81 @@ impl CharacterBuilder {
     /// chargen flow doesn't set an explicit `class_hint`.
     pub fn default_class(&self) -> Option<&str> {
         self.default_class.as_deref()
+    }
+
+    /// Substitute `{name}`, `{class}`, `{race}` placeholders in scene narration
+    /// with the builder's accumulated character state.
+    ///
+    /// Genre packs author confirmation narration with personalization
+    /// placeholders that flow verbatim from `scene.narration` into the
+    /// CharacterCreation payload. Without substitution the curly-brace tokens
+    /// render literally to the player ("Welcome aboard, {name}.").
+    ///
+    /// Unresolved placeholders (e.g. `{name}` used in a scene that renders
+    /// before the name-entry scene) substitute as empty strings. An OTEL
+    /// watcher event records which keys were resolved vs. missing so the GM
+    /// panel sees silent drift instead of mystery blanks.
+    ///
+    /// Unrecognized tokens (any `{...}` other than `{name}`, `{class}`, `{race}`)
+    /// pass through to the output unchanged and trigger a separate
+    /// `unrecognized_placeholders` Warn event so a genre-pack authoring typo
+    /// (e.g. `{nmae}`, `{origin}`) surfaces instead of rendering silently.
+    fn interpolate_scene_narration(&self, text: &str) -> String {
+        if !text.contains('{') {
+            return text.to_string();
+        }
+        let acc = self.accumulated();
+        let name = self.character_name().unwrap_or("");
+        let class = acc.class_hint.as_deref().unwrap_or("");
+        let race = acc.race_hint.as_deref().unwrap_or("");
+
+        let had_name = text.contains("{name}");
+        let had_class = text.contains("{class}");
+        let had_race = text.contains("{race}");
+
+        let rendered = if had_name || had_class || had_race {
+            let out = text
+                .replace("{name}", name)
+                .replace("{class}", class)
+                .replace("{race}", race);
+
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "scene_narration_interpolated")
+                .field_opt("name_resolved", &had_name.then_some(!name.is_empty()))
+                .field_opt("class_resolved", &had_class.then_some(!class.is_empty()))
+                .field_opt("race_resolved", &had_race.then_some(!race.is_empty()))
+                .severity(
+                    if (had_name && name.is_empty())
+                        || (had_class && class.is_empty())
+                        || (had_race && race.is_empty())
+                    {
+                        Severity::Warn
+                    } else {
+                        Severity::Info
+                    },
+                )
+                .send();
+            out
+        } else {
+            text.to_string()
+        };
+
+        // Any `{...}` still present in the rendered output is either a token
+        // the author mistyped (`{nmae}`) or a key this interpolator doesn't
+        // know about (`{origin}`, `{faction}`). Either way the token will
+        // leak to the client literally — so fire one Warn event per
+        // offending token instead of failing silently (CLAUDE.md "No Silent
+        // Fallbacks"). Per-token emission means a narration with multiple
+        // typos surfaces all of them, not just the leftmost.
+        for unrecognized in find_unrecognized_tokens(&rendered) {
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "scene_narration_unrecognized_placeholder")
+                .field("token", unrecognized)
+                .severity(Severity::Warn)
+                .send();
+        }
+
+        rendered
     }
 
     /// Extract the character name from the name-entry scene (last scene with
@@ -1350,7 +1471,7 @@ impl CharacterBuilder {
                         phase: "scene".to_string(),
                         scene_index: Some(*scene_index as u32),
                         total_scenes: Some(self.scenes.len() as u32),
-                        prompt: Some(scene.narration.clone()),
+                        prompt: Some(self.interpolate_scene_narration(&scene.narration)),
                         summary: None,
                         message: None,
                         choices: Some(choices),
