@@ -2470,7 +2470,12 @@ async fn dispatch_message(
                         // Also fix the scalar locals so dispatch_player_action has them
                         *character_level = ps.character_level;
                     }
-                    ss_guard.players.insert(player_id.to_string(), ps);
+                    // Dedup chokepoint: if a prior connection for this player_name
+                    // still lives under an old player_id, remove it before inserting
+                    // under the new one. Without this, a solo reconnect lands here
+                    // and leaves two party entries with the same name — the phantom
+                    // second player that deadlocks the turn barrier (story 37-19).
+                    ss_guard.insert_player_dedup_by_name(player_id, ps);
 
                     // Clear any pending dice state from a prior connection.
                     // If the player refreshed while the dice overlay was waiting

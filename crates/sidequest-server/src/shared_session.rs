@@ -335,6 +335,48 @@ impl SharedGameSession {
         self.players.len()
     }
 
+    /// Insert a `PlayerState` under `new_pid`, deduplicating by `player_name`.
+    ///
+    /// If an existing entry has the same `player_name` but a different
+    /// `player_id`, that entry is removed before the insert. Its
+    /// `player_id` is returned so the caller can keep external rosters
+    /// (turn barrier, perception filters, dice requests) in sync.
+    ///
+    /// This is the single chokepoint for player insertion. Direct calls
+    /// to `self.players.insert(...)` bypass reconnect dedup and can
+    /// introduce a phantom duplicate entry — the failure mode that
+    /// wedged multiplayer session resume in playtest 2026-04-12 (see
+    /// story 37-19). A source-level wiring test forbids raw
+    /// `players.insert(...)` outside this module.
+    pub fn insert_player_dedup_by_name(
+        &mut self,
+        new_pid: &str,
+        ps: PlayerState,
+    ) -> Option<String> {
+        let name = ps.player_name.clone();
+        let old_pid = self
+            .players
+            .iter()
+            .find(|(pid, existing)| pid.as_str() != new_pid && existing.player_name == name)
+            .map(|(pid, _)| pid.clone());
+
+        if let Some(ref old) = old_pid {
+            self.players.remove(old);
+            crate::WatcherEventBuilder::new(
+                "multiplayer",
+                crate::WatcherEventType::StateTransition,
+            )
+            .field("event", "phantom_player_removed")
+            .field("old_player_id", old.as_str())
+            .field("new_player_id", new_pid)
+            .field("player_name", name.as_str())
+            .send();
+        }
+
+        self.players.insert(new_pid.to_string(), ps);
+        old_pid
+    }
+
     /// Subscribe to the session broadcast channel.
     pub fn subscribe(&self) -> broadcast::Receiver<TargetedMessage> {
         self.session_tx.subscribe()

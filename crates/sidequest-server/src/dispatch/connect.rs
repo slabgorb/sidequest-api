@@ -41,9 +41,8 @@ pub(crate) struct ConnectContext<'a> {
     pub visual_style: &'a mut Option<sidequest_genre::VisualStyle>,
     pub music_director: &'a mut Option<sidequest_game::MusicDirector>,
     pub audio_mixer: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    pub prerender_scheduler: &'a std::sync::Arc<
-        tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
-    >,
+    pub prerender_scheduler:
+        &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     pub turn_manager: &'a mut sidequest_game::TurnManager,
     pub npc_registry: &'a mut Vec<NpcRegistryEntry>,
     pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
@@ -62,8 +61,10 @@ pub(crate) struct ChargenInitContext<'a> {
     pub visual_style_out: &'a mut Option<sidequest_genre::VisualStyle>,
     pub axes_config_out: &'a mut Option<sidequest_genre::AxesConfig>,
     pub music_director_out: &'a mut Option<sidequest_game::MusicDirector>,
-    pub audio_mixer_lock: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    pub prerender_lock: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
+    pub audio_mixer_lock:
+        &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    pub prerender_lock:
+        &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
     pub opening_seed_out: &'a mut Option<String>,
     pub opening_directive_out: &'a mut Option<String>,
@@ -96,15 +97,15 @@ pub(crate) struct ChargenDispatchContext<'a> {
     pub discovered_regions: &'a mut Vec<String>,
     pub turn_manager: &'a mut sidequest_game::TurnManager,
     pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
-    pub lore_embed_tx: &'a tokio::sync::mpsc::UnboundedSender<super::lore_embed_worker::EmbedRequest>,
+    pub lore_embed_tx:
+        &'a tokio::sync::mpsc::UnboundedSender<super::lore_embed_worker::EmbedRequest>,
     pub shared_session_holder: &'a Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,
     pub music_director: &'a mut Option<sidequest_game::MusicDirector>,
     pub audio_mixer: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    pub prerender_scheduler: &'a std::sync::Arc<
-        tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
-    >,
+    pub prerender_scheduler:
+        &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     pub continuity_corrections: &'a mut String,
     pub quest_log: &'a mut HashMap<String, String>,
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
@@ -2618,7 +2619,10 @@ pub(crate) async fn dispatch_character_creation(
                                     if let Some(ref cj) = *character_json_store {
                                         transferred.character_json = Some(cj.clone());
                                     }
-                                    ss.players.insert(player_id.to_string(), transferred);
+                                    // Route through the dedup chokepoint even though we
+                                    // just removed the old entry — keeps all player
+                                    // insertions on one code path (story 37-19).
+                                    ss.insert_player_dedup_by_name(player_id, transferred);
                                 }
                                 // Update barrier roster: swap old player_id for new one
                                 if let Some(ref barrier) = ss.turn_barrier {
@@ -2722,7 +2726,8 @@ pub(crate) async fn dispatch_character_creation(
 
                             if !is_reconnect {
                                 let ps = shared_session::PlayerState::new(connecting_name.clone());
-                                ss.players.insert(player_id.to_string(), ps);
+                                // Single dedup chokepoint for all player inserts (story 37-19).
+                                ss.insert_player_dedup_by_name(player_id, ps);
                                 // Populate character data on the PlayerState
                                 if let Some(p) = ss.players.get_mut(player_id) {
                                     p.character_name =

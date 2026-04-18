@@ -85,9 +85,7 @@ fn descriptor_schema_has_tail_chase_mvp_with_initial_descriptor() {
         "tail_chase initial_descriptor must define closure"
     );
     assert_eq!(
-        initial
-            .get("gun_solution")
-            .and_then(|v| v.as_bool()),
+        initial.get("gun_solution").and_then(|v| v.as_bool()),
         Some(false),
         "tail_chase initial gun_solution must be false (close but not locked)"
     );
@@ -106,8 +104,8 @@ fn tail_chase_table_exists_and_loads() {
         path
     );
 
-    let table = load_interaction_table(&path)
-        .unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
+    let table =
+        load_interaction_table(&path).unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
 
     assert_eq!(
         table.starting_state, "tail_chase",
@@ -118,8 +116,8 @@ fn tail_chase_table_exists_and_loads() {
 #[test]
 fn tail_chase_table_has_16_cells() {
     let path = tail_chase_table_path();
-    let table = load_interaction_table(&path)
-        .unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
+    let table =
+        load_interaction_table(&path).unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
 
     assert_eq!(
         table.cells.len(),
@@ -132,8 +130,8 @@ fn tail_chase_table_has_16_cells() {
 #[test]
 fn tail_chase_table_covers_all_4x4_pairs() {
     let path = tail_chase_table_path();
-    let table = load_interaction_table(&path)
-        .unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
+    let table =
+        load_interaction_table(&path).unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
 
     let mut missing = Vec::new();
     for red in MANEUVERS {
@@ -158,14 +156,12 @@ fn tail_chase_table_covers_all_4x4_pairs() {
 #[test]
 fn tail_chase_table_consumes_same_maneuvers_as_merge() {
     let path = tail_chase_table_path();
-    let table = load_interaction_table(&path)
-        .unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
+    let table =
+        load_interaction_table(&path).unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
 
     for m in MANEUVERS {
         assert!(
-            table
-                .maneuvers_consumed
-                .contains(&m.to_string()),
+            table.maneuvers_consumed.contains(&m.to_string()),
             "tail_chase must consume maneuver '{}' (same 4 as merge)",
             m
         );
@@ -182,8 +178,8 @@ fn tail_chase_has_asymmetric_gun_solutions() {
     // cells than the evader (Blue). The merge table is more symmetric.
     // This test verifies the asymmetry exists.
     let path = tail_chase_table_path();
-    let table = load_interaction_table(&path)
-        .unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
+    let table =
+        load_interaction_table(&path).unwrap_or_else(|e| panic!("tail_chase table must load: {e}"));
 
     let red_shots: usize = table
         .cells

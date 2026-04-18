@@ -297,12 +297,10 @@ fn maybe_apply_extend_and_return(encounter: &mut StructuredEncounter) {
     }
 
     // Check condition 2: does any actor have opening_fast closure?
-    let any_opening_fast = encounter.actors.iter().any(|a| {
-        a.per_actor_state
-            .get("closure")
-            .and_then(|v| v.as_str())
-            == Some("opening_fast")
-    });
+    let any_opening_fast = encounter
+        .actors
+        .iter()
+        .any(|a| a.per_actor_state.get("closure").and_then(|v| v.as_str()) == Some("opening_fast"));
 
     if !any_opening_fast {
         return; // No opening_fast — engagement hasn't broken apart.

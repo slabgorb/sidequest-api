@@ -119,8 +119,7 @@ fn reinsert_same_pid_same_name_is_idempotent() {
     let mut ss = fresh_session();
 
     ss.insert_player_dedup_by_name("pid-a", PlayerState::new("Alice".to_string()));
-    let removed =
-        ss.insert_player_dedup_by_name("pid-a", PlayerState::new("Alice".to_string()));
+    let removed = ss.insert_player_dedup_by_name("pid-a", PlayerState::new("Alice".to_string()));
 
     assert_eq!(
         removed, None,
@@ -138,8 +137,7 @@ fn dedup_insert_returns_old_pid_not_new_pid() {
     let mut ss = fresh_session();
     ss.insert_player_dedup_by_name("stale", PlayerState::new("Alice".to_string()));
 
-    let removed =
-        ss.insert_player_dedup_by_name("fresh", PlayerState::new("Alice".to_string()));
+    let removed = ss.insert_player_dedup_by_name("fresh", PlayerState::new("Alice".to_string()));
 
     assert_eq!(
         removed.as_deref(),
@@ -179,8 +177,7 @@ fn player_count_after_solo_reconnect_cannot_trigger_barrier_auto_promotion() {
 
 fn read_source(relative: &str) -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {relative}: {e}"))
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {relative}: {e}"))
 }
 
 /// AC-6 (wiring): `src/lib.rs` — the returning-player path (inside

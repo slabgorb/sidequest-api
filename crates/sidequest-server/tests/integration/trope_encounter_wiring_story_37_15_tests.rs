@@ -97,9 +97,7 @@ fn auto_resolve_emits_watcher_event() {
         .iter()
         .filter(|e| {
             e.component == "trope"
-                && e.fields
-                    .get("event")
-                    .and_then(serde_json::Value::as_str)
+                && e.fields.get("event").and_then(serde_json::Value::as_str)
                     == Some("trope.auto_resolved")
         })
         .collect();
@@ -113,7 +111,10 @@ fn auto_resolve_emits_watcher_event() {
     // Verify the event carries the trope_id
     let event = auto_resolved[0];
     assert_eq!(
-        event.fields.get("trope_id").and_then(serde_json::Value::as_str),
+        event
+            .fields
+            .get("trope_id")
+            .and_then(serde_json::Value::as_str),
         Some("the_standoff"),
         "trope.auto_resolved event must carry the trope_id"
     );
@@ -134,9 +135,7 @@ fn resolve_from_trope_emits_watcher_event() {
         .iter()
         .filter(|e| {
             e.component == "encounter"
-                && e.fields
-                    .get("event")
-                    .and_then(serde_json::Value::as_str)
+                && e.fields.get("event").and_then(serde_json::Value::as_str)
                     == Some("encounter.state.resolved_by_trope")
         })
         .collect();
