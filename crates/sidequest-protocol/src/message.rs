@@ -1826,10 +1826,12 @@ pub struct DiceRequestPayload {
     pub dice: Vec<DieSpec>,
     /// Stat modifier applied to the sum of rolls. Can be negative (penalties).
     pub modifier: i32,
-    /// Ability name for the check (e.g., `"dexterity"`, `"strength"`). Set by
-    /// the narrator from the beat definition. Must be non-blank and non-empty;
-    /// whitespace-only values are rejected at the wire boundary.
-    pub stat: String,
+    /// Ability name for the check (e.g., `"DEXTERITY"`, `"STRENGTH"`). Set by
+    /// the narrator from the beat definition. Canonicalized to UPPERCASE at the
+    /// wire boundary via the `Stat` newtype — this kills narrator casing drift
+    /// ("Influence" vs "INFLUENCE" vs "Nerve") at the type level (story 37-17).
+    /// Blank/whitespace-only values are rejected.
+    pub stat: crate::types::Stat,
     /// Difficulty class the total must meet or exceed. Revealed HERE, not during
     /// the sealed phase (ADR-074: DC-reveal-at-roll-time tension mechanic).
     /// Uses `NonZeroU32` to reject `0`, which would otherwise make every roll
@@ -1881,7 +1883,8 @@ mod dice_payload_raw {
                 character_name: p.character_name,
                 dice: p.dice,
                 modifier: p.modifier,
-                stat: p.stat,
+                // Emit the already-canonical (uppercase) form on the wire.
+                stat: p.stat.as_str().to_string(),
                 difficulty: p.difficulty,
                 context: p.context,
             }
@@ -1894,16 +1897,18 @@ mod dice_payload_raw {
             if raw.dice.is_empty() {
                 return Err(super::DiceRequestPayloadError::EmptyDicePool);
             }
-            if raw.stat.trim().is_empty() {
-                return Err(super::DiceRequestPayloadError::BlankStat);
-            }
+            // Canonicalize at the wire boundary: any casing from the narrator
+            // ("Influence", "INFLUENCE", "nerve") normalizes to UPPERCASE, and
+            // blank input is rejected via the same `Stat::new` path.
+            let stat = crate::types::Stat::new(&raw.stat)
+                .map_err(|_| super::DiceRequestPayloadError::BlankStat)?;
             Ok(Self {
                 request_id: raw.request_id,
                 rolling_player_id: raw.rolling_player_id,
                 character_name: raw.character_name,
                 dice: raw.dice,
                 modifier: raw.modifier,
-                stat: raw.stat,
+                stat,
                 difficulty: raw.difficulty,
                 context: raw.context,
             })

@@ -84,7 +84,7 @@ fn dice_request_payload_has_all_adr_074_fields() {
         character_name: "Kira".to_string(),
         dice: d20_once(),
         modifier: 3,
-        stat: "dexterity".to_string(),
+        stat: crate::Stat::new("dexterity").unwrap(),
         difficulty: dc(15),
         context: "Pick the lock".to_string(),
     };
@@ -96,7 +96,7 @@ fn dice_request_payload_has_all_adr_074_fields() {
     assert_eq!(payload.dice[0].sides, DieSides::D20);
     assert_eq!(payload.dice[0].count.get(), 1);
     assert_eq!(payload.modifier, 3);
-    assert_eq!(payload.stat, "dexterity");
+    assert_eq!(payload.stat.as_str(), "DEXTERITY");
     assert_eq!(payload.difficulty.get(), 15);
     assert_eq!(payload.context, "Pick the lock");
 }
@@ -110,7 +110,7 @@ fn dice_request_supports_negative_modifier() {
         character_name: "Kira".to_string(),
         dice: d20_once(),
         modifier: -2,
-        stat: "strength".to_string(),
+        stat: crate::Stat::new("strength").unwrap(),
         difficulty: dc(12),
         context: "Wounded, she heaves the door.".to_string(),
     };
@@ -126,7 +126,7 @@ fn dice_request_supports_pool_of_dice() {
         character_name: "Kira".to_string(),
         dice: pool_4d6_2d10(),
         modifier: 0,
-        stat: "constitution".to_string(),
+        stat: crate::Stat::new("constitution").unwrap(),
         difficulty: dc(18),
         context: "Channel raw power.".to_string(),
     };
@@ -239,7 +239,7 @@ fn dice_request_serde_round_trip_preserves_every_field() {
             character_name: "Kira the Sly".to_string(),
             dice: d20_once(),
             modifier: 3,
-            stat: "dexterity".to_string(),
+            stat: crate::Stat::new("dexterity").unwrap(),
             difficulty: dc(15),
             context: "Pick the lock — you need a 12.".to_string(),
         },
@@ -257,7 +257,7 @@ fn dice_request_serde_round_trip_preserves_every_field() {
             assert_eq!(payload.dice[0].sides, DieSides::D20);
             assert_eq!(payload.dice[0].count.get(), 1);
             assert_eq!(payload.modifier, 3);
-            assert_eq!(payload.stat, "dexterity");
+            assert_eq!(payload.stat.as_str(), "DEXTERITY");
             assert_eq!(payload.difficulty.get(), 15);
             assert_eq!(payload.context, "Pick the lock — you need a 12.");
         }
@@ -451,7 +451,7 @@ fn dice_request_serializes_with_dice_request_type_tag() {
             character_name: "Kira".to_string(),
             dice: d20_once(),
             modifier: 0,
-            stat: "wisdom".to_string(),
+            stat: crate::Stat::new("wisdom").unwrap(),
             difficulty: dc(10),
             context: "Listen at the door.".to_string(),
         },
@@ -860,7 +860,7 @@ fn dice_request_deserializes_from_adr_074_fixture() {
             assert_eq!(payload.dice.len(), 1);
             assert_eq!(payload.dice[0].sides, DieSides::D20);
             assert_eq!(payload.modifier, 3);
-            assert_eq!(payload.stat, "dexterity");
+            assert_eq!(payload.stat.as_str(), "DEXTERITY");
             assert_eq!(payload.difficulty.get(), 15);
             assert_eq!(
                 payload.context,
@@ -1037,7 +1037,7 @@ fn all_new_dice_public_types_reachable_via_crate_root() {
         character_name: "Kira".to_string(),
         dice: d20_once(),
         modifier: 0,
-        stat: "wisdom".to_string(),
+        stat: crate::Stat::new("wisdom").unwrap(),
         difficulty: dc(10),
         context: "wiring probe".to_string(),
     };

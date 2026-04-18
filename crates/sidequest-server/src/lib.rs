@@ -2308,7 +2308,11 @@ async fn dispatch_message(
                 count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
             }],
             modifier: char_stat_modifier,
-            stat: stat_check.clone(),
+            // Canonicalize at the wire boundary. stat_check comes from an
+            // already-validated BeatDef (validate.rs checks it matches an
+            // ability score via to_uppercase), so blank is unreachable here.
+            stat: sidequest_protocol::Stat::new(&stat_check)
+                .expect("BeatDef.stat_check is validated non-blank at genre pack load"),
             difficulty,
             context: format!("{} — {} check", beat_label, stat_check),
         };
@@ -3134,7 +3138,11 @@ async fn dispatch_message(
                                     count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
                                 }],
                                 modifier: char_stat_modifier,
-                                stat: stat_check.clone(),
+                                // Same boundary canonicalization as the first
+                                // dispatch path above — validate.rs guarantees
+                                // stat_check is non-blank.
+                                stat: sidequest_protocol::Stat::new(&stat_check)
+                                    .expect("BeatDef.stat_check is validated non-blank at genre pack load"),
                                 difficulty,
                                 context: format!("{} — {} check", beat_label, stat_check),
                             };

@@ -27,7 +27,7 @@ fn server_can_resolve_dice_and_compose_result_payload() {
             count: NonZeroU8::new(1).unwrap(),
         }],
         modifier: 3,
-        stat: "strength".to_string(),
+        stat: sidequest_protocol::Stat::new("strength").unwrap(),
         difficulty: NonZeroU32::new(15).unwrap(),
         context: "You attempt to force open the rusted gate.".to_string(),
     };
