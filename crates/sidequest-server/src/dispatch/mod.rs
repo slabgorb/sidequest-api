@@ -551,7 +551,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             MutationAction::Destroyed => sidequest_game::ItemState::Destroyed {
                                 reason: mutation.detail.clone(),
                             },
-                            MutationAction::Acquired => unreachable!(),
+                            MutationAction::Acquired => unreachable!(
+                                "Acquired is handled by the upstream pickup branch; \
+                                 this match only runs for removal-kind mutations"
+                            ),
+                            _ => unreachable!(
+                                "MutationAction is #[non_exhaustive]; all current \
+                                 variants are handled above"
+                            ),
                         };
                         match ctx.inventory.transition(&item_id, new_state) {
                             Ok(old_state) => {
