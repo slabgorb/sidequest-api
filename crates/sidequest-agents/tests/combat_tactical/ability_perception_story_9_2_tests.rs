@@ -56,6 +56,7 @@ fn make_character(name: &str, abilities: Vec<AbilityDefinition>) -> Character {
         affinities: vec![],
         is_friendly: true,
         resolved_archetype: None,
+        archetype_provenance: None,
     }
 }
 

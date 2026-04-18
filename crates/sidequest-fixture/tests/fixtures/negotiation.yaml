@@ -1,0 +1,43 @@
+name: Negotiation — Test Fixture
+genre: scene_harness_pack
+world: scene_harness_world
+description: Self-contained test fixture for negotiation confrontation wiring.
+player_name: fixture-negotiation
+
+character:
+  name: "Test Negotiator"
+  description: "A test character for the negotiation scene-harness wiring gate."
+  personality: "Patient and observant."
+  level: 3
+  hp: 16
+  max_hp: 20
+  ac: 11
+  inventory:
+    items: []
+    gold: 80
+  statuses: []
+  backstory: "Test backstory — exists only to satisfy the NonBlankString deserialization path."
+  narrative_state: "Entering the test meeting room."
+  hooks:
+    - "test hook"
+  char_class: Detective
+  race: Human
+  pronouns: "they/them"
+  stats:
+    Physique: 10
+    Reflex: 12
+    Intellect: 14
+    Cunning: 12
+    Resolve: 14
+    Influence: 16
+
+location: "Test Location"
+turn: 1
+
+npcs:
+  - name: "Test Opposition"
+    role: counterparty
+    disposition: -5
+
+encounter:
+  type: negotiation

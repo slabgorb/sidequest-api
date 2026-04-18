@@ -266,6 +266,7 @@ fn character_has_abilities_field() {
         affinities: vec![],
         is_friendly: true,
         resolved_archetype: None,
+        archetype_provenance: None,
     };
 
     assert_eq!(character.abilities.len(), 2);

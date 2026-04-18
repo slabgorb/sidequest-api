@@ -16,5 +16,10 @@ split-debuginfo = "unpacked"
 opt-level = 1
 
 [alias]
-# Use nextest for parallel test execution — same args as `cargo test`
-t = "nextest run"
+# `cargo t` = `cargo test`. Do NOT switch to `cargo nextest run` — nextest's
+# test-discovery phase spawns every test binary in parallel with `--list`,
+# which hangs forever under macOS code-signing verification. amfid/syspolicyd
+# serialize parallel binary-verification XPC calls in a way that deadlocks
+# on this workspace. `cargo test` invokes test binaries sequentially and is
+# safe. See memory: feedback_cargo_test_not_nextest.md.
+t = "test"

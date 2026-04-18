@@ -49,6 +49,12 @@ fn npc_with_agreeableness(agreeableness: f64, base_disposition: i32) -> Npc {
         distinguishing_features: vec![],
         ocean: Some(ocean),
         belief_state: sidequest_game::belief_state::BeliefState::default(),
+        resolution_tier: sidequest_game::ResolutionTier::default(),
+        non_transactional_interactions: 0,
+        jungian_id: None,
+        rpg_role_id: None,
+        npc_role_id: None,
+        resolved_archetype: None,
     }
 }
 
@@ -82,6 +88,12 @@ fn npc_without_ocean(base_disposition: i32) -> Npc {
         distinguishing_features: vec![],
         ocean: None,
         belief_state: sidequest_game::belief_state::BeliefState::default(),
+        resolution_tier: sidequest_game::ResolutionTier::default(),
+        non_transactional_interactions: 0,
+        jungian_id: None,
+        rpg_role_id: None,
+        npc_role_id: None,
+        resolved_archetype: None,
     }
 }
 

@@ -84,6 +84,12 @@ fn merchant_npc(name: &str, items: Vec<Item>, gold: i64) -> Npc {
         distinguishing_features: vec![],
         ocean: None,
         belief_state: Default::default(),
+        resolution_tier: sidequest_game::ResolutionTier::default(),
+        non_transactional_interactions: 0,
+        jungian_id: None,
+        rpg_role_id: None,
+        npc_role_id: None,
+        resolved_archetype: None,
     }
 }
 
@@ -145,6 +151,7 @@ fn snapshot_with_merchant(
         affinities: vec![],
         is_friendly: true,
         resolved_archetype: None,
+        archetype_provenance: None,
     };
 
     GameSnapshot {

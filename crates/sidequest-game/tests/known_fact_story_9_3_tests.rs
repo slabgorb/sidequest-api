@@ -65,6 +65,7 @@ fn make_character(name: &str, facts: Vec<KnownFact>) -> Character {
         affinities: vec![],
         is_friendly: true,
         resolved_archetype: None,
+        archetype_provenance: None,
     }
 }
 

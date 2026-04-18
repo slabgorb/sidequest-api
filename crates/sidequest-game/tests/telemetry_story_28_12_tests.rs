@@ -749,6 +749,7 @@ fn test_character(name: &str) -> sidequest_game::Character {
         affinities: vec![],
         is_friendly: true,
         resolved_archetype: None,
+        archetype_provenance: None,
     }
 }
 

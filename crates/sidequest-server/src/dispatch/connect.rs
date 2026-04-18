@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use sidequest_game::builder::CharacterBuilder;
+use sidequest_game::character::ProvenancePanelExt;
 use sidequest_game::session_restore;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
@@ -345,6 +346,7 @@ pub(crate) async fn dispatch_connect(
                                                 .iter()
                                                 .map(|i| i.name.as_str().to_string())
                                                 .collect(),
+                                            archetype_provenance: c.archetype_provenance.clone(),
                                         })
                                         .collect(),
                                     location: sidequest_protocol::NonBlankString::new(
@@ -1608,8 +1610,29 @@ pub(crate) async fn dispatch_character_creation(
                                             Some(&world_slug),
                                         ) {
                                             Ok(result) => {
-                                                character.resolved_archetype =
-                                                    Some(result.resolved.name.clone());
+                                                // Phase G3: one call sets both
+                                                // `resolved_archetype` (display
+                                                // name) and `archetype_provenance`
+                                                // (tier + merge trail), keeping
+                                                // them in lockstep. The
+                                                // `Resolved<ArchetypeResolved>`
+                                                // is reconstructed from the
+                                                // shim's `ArchetypeResolution` —
+                                                // they carry the same value +
+                                                // provenance but the shim also
+                                                // exposes `source` and `weight`
+                                                // which the character doesn't
+                                                // need.
+                                                let resolved_for_character =
+                                                    sidequest_genre::resolver::Resolved {
+                                                        value: result.resolved.clone(),
+                                                        provenance: result.provenance.clone(),
+                                                    };
+                                                character.apply_archetype_resolved(
+                                                    &resolved_for_character,
+                                                );
+                                                let source_tier =
+                                                    resolved_for_character.source_tier_for_panel();
 
                                                 WatcherEventBuilder::new(
                                                     "archetype_resolution",
@@ -1622,6 +1645,7 @@ pub(crate) async fn dispatch_character_creation(
                                                     "resolved_name",
                                                     result.resolved.name.as_str(),
                                                 )
+                                                .field("source_tier", source_tier)
                                                 .field("source", format!("{:?}", result.source))
                                                 .field(
                                                     "faction",
@@ -2159,6 +2183,7 @@ pub(crate) async fn dispatch_character_creation(
                                         .carried()
                                         .map(|i| i.name.as_str().to_string())
                                         .collect(),
+                                    archetype_provenance: character.archetype_provenance.clone(),
                                 }],
                                 location: sidequest_protocol::NonBlankString::new(current_location)
                                     .expect("current_location is non-empty at session ready"),
@@ -2638,6 +2663,7 @@ pub(crate) async fn dispatch_character_creation(
                                         affinities: vec![],
                                         is_friendly: true,
                                         resolved_archetype: None,
+                                        archetype_provenance: None,
                                     };
                                     let _ =
                                         barrier.add_player(player_id.to_string(), placeholder_char);
@@ -2947,6 +2973,7 @@ pub(crate) async fn dispatch_character_creation(
                                             affinities: vec![],
                                             is_friendly: true,
                                             resolved_archetype: None,
+                                            archetype_provenance: None,
                                         }
                                     };
                                     let _ =

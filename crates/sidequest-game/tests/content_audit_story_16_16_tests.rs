@@ -1,41 +1,36 @@
 //! Story 16-16: Content audit — all genre packs declare confrontations and resources
 //!
-//! Validates that all 9 genre packs load without error and each declares at least
-//! one confrontation type. Documents which packs have resource declarations.
+//! Validates that every shipped genre pack loads without error and each declares
+//! at least one confrontation type. Documents which packs have resource declarations.
+//!
+//! The pack list tracks `sidequest-content/genre_packs/` — the authoritative
+//! inventory of shipped packs. Incomplete packs live in `genre_workshopping/`
+//! and are intentionally excluded (see sidequest-content commit 6c28431 / PR #83
+//! from 2026-04-16, which moved `low_fantasy`, `neon_dystopia`, `pulp_noir`,
+//! `road_warrior`, `spaghetti_western`, and `victoria` to the workshop).
 
 use std::path::PathBuf;
 
-/// All 9 genre pack directory names.
+/// Shipped genre pack directory names (mirrors `sidequest-content/genre_packs/`).
 const ALL_GENRES: &[&str] = &[
+    "caverns_and_claudes",
     "elemental_harmony",
-    "low_fantasy",
+    "heavy_metal",
     "mutant_wasteland",
-    "neon_dystopia",
-    "pulp_noir",
-    "road_warrior",
     "space_opera",
-    "spaghetti_western",
-    "victoria",
 ];
 
 /// Genre packs expected to have resource declarations.
-const GENRES_WITH_RESOURCES: &[(&str, &[&str])] = &[
-    ("neon_dystopia", &["humanity"]),
-    ("pulp_noir", &["heat"]),
-    ("road_warrior", &["fuel"]),
-    ("spaghetti_western", &["luck"]),
-    ("victoria", &["standing"]),
-];
+///
+/// Empty until a shipped pack declares resources. The packs that previously
+/// populated this table (`neon_dystopia`, `pulp_noir`, `road_warrior`,
+/// `spaghetti_western`, `victoria`) were moved to `genre_workshopping/` and
+/// are no longer part of the shipped inventory.
+const GENRES_WITH_RESOURCES: &[(&str, &[&str])] = &[];
 
 /// Genre packs expected to have genre-specific confrontation types (beyond negotiation).
-const GENRES_WITH_SPECIFIC_CONFRONTATIONS: &[(&str, &[&str])] = &[
-    ("neon_dystopia", &["net_combat"]),
-    ("pulp_noir", &["interrogation", "roulette", "craps"]),
-    ("road_warrior", &["negotiation"]),
-    ("space_opera", &["ship_combat"]),
-    ("spaghetti_western", &["standoff", "poker"]),
-    ("victoria", &["trial", "auction"]),
-];
+const GENRES_WITH_SPECIFIC_CONFRONTATIONS: &[(&str, &[&str])] =
+    &[("space_opera", &["ship_combat"])];
 
 fn genre_packs_path() -> PathBuf {
     if let Ok(path) = std::env::var("GENRE_PACKS_PATH") {
@@ -46,7 +41,7 @@ fn genre_packs_path() -> PathBuf {
 }
 
 // ═══════════════════════════════════════════════════════════
-// All 9 genre packs load without error
+// All shipped genre packs load without error
 // ═══════════════════════════════════════════════════════════
 
 #[test]

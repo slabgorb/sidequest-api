@@ -1,0 +1,43 @@
+name: Dogfight — Test Fixture
+genre: scene_harness_pack
+world: scene_harness_world
+description: Self-contained test fixture for dogfight confrontation wiring.
+player_name: fixture-dogfight
+
+character:
+  name: "Test Pilot"
+  description: "A test character for the dogfight scene-harness wiring gate."
+  personality: "Steady hands."
+  level: 3
+  hp: 18
+  max_hp: 20
+  ac: 13
+  inventory:
+    items: []
+    gold: 0
+  statuses: []
+  backstory: "Test backstory — exists only to satisfy the NonBlankString deserialization path."
+  narrative_state: "In the cockpit, test engines idling."
+  hooks:
+    - "test hook"
+  char_class: Pilot
+  race: Spacer
+  pronouns: "they/them"
+  stats:
+    Physique: 12
+    Reflex: 16
+    Intellect: 12
+    Cunning: 12
+    Resolve: 12
+    Influence: 10
+
+location: "Test Location"
+turn: 1
+
+npcs:
+  - name: "Test Bogey"
+    role: enemy
+    disposition: -20
+
+encounter:
+  type: dogfight

@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use sidequest_protocol::NonBlankString;
+use sidequest_genre::archetype::ArchetypeResolved;
+use sidequest_genre::resolver::Resolved;
+use sidequest_protocol::{NonBlankString, Provenance, Tier};
 
 use crate::ability::AbilityDefinition;
 use crate::affinity::AffinityState;
@@ -68,6 +70,14 @@ pub struct Character {
     /// constraints and funnels happens in the dispatch layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_archetype: Option<String>,
+
+    /// Provenance for `resolved_archetype` — which tier (Global / Genre /
+    /// World / Culture) and which YAML file produced the final archetype
+    /// value, plus the full merge trail. Populated by the dispatch layer
+    /// at the same call site that sets `resolved_archetype`. Flows out to
+    /// the UI on `CharacterState.archetype_provenance` for GM-panel display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archetype_provenance: Option<Provenance>,
 }
 
 fn default_friendly() -> bool {
@@ -78,6 +88,19 @@ impl Character {
     /// Apply HP damage or healing, clamped to [0, max_hp].
     pub fn apply_hp_delta(&mut self, delta: i32) {
         self.core.apply_hp_delta(delta);
+    }
+
+    /// Apply a four-tier archetype resolution to the character — sets
+    /// both the display name (`resolved_archetype`) and the full
+    /// tier-annotated provenance (`archetype_provenance`) in one place.
+    ///
+    /// Called by the dispatch layer after `sidequest_genre::archetype::
+    /// resolve_archetype` produces a result, so the two fields stay in
+    /// lockstep. The provenance is what the GM panel consumes via the
+    /// `CharacterState.archetype_provenance` wire field (Phase G2).
+    pub fn apply_archetype_resolved(&mut self, resolved: &Resolved<ArchetypeResolved>) {
+        self.resolved_archetype = Some(resolved.value.name.clone());
+        self.archetype_provenance = Some(resolved.provenance.clone());
     }
 
     /// Produce a genre-voiced narrative character sheet for player display.
@@ -143,6 +166,29 @@ impl Combatant for Character {
     }
 }
 
+/// Extension trait that gives the GM-panel / OTEL watcher a stable,
+/// lowercase tier label for a resolved value.
+///
+/// `format!("{:?}", tier)` would print `"Culture"`; the panel wants
+/// `"culture"` to match the wire format (see `Tier`'s
+/// `#[serde(rename_all = "lowercase")]`). Any `Resolved<T>` — archetype
+/// or future content types — can call `.source_tier_for_panel()`.
+pub trait ProvenancePanelExt {
+    /// Lowercase tier label — `"global" | "genre" | "world" | "culture"`.
+    fn source_tier_for_panel(&self) -> &'static str;
+}
+
+impl<T> ProvenancePanelExt for Resolved<T> {
+    fn source_tier_for_panel(&self) -> &'static str {
+        match self.provenance.source_tier {
+            Tier::Global => "global",
+            Tier::Genre => "genre",
+            Tier::World => "world",
+            Tier::Culture => "culture",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,6 +228,7 @@ mod tests {
             affinities: vec![],
             is_friendly: true,
             resolved_archetype: None,
+            archetype_provenance: None,
         }
     }
 

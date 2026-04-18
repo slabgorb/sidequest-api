@@ -148,7 +148,11 @@ async fn test_run_validator_receives_turn_records() {
     // Placeholder: Just verify that we can call run_validator without panic.
     // Real test will verify legality checks and OTEL events.
 
-    let (_tx, rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
+    // Drop the sender so run_validator's receive loop terminates when the
+    // channel closes. Without this, `_tx` stays in scope past the `.await`
+    // point, the channel never closes, and run_validator loops forever.
+    drop(tx);
 
     // This should not panic even if no legality checks are wired yet.
     let result = run_validator(rx).await;

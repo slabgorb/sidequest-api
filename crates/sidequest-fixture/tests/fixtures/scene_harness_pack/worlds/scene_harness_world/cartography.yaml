@@ -1,0 +1,8 @@
+world_name: Scene Harness Test World
+starting_region: test_region
+regions:
+  test_region:
+    name: Test Region
+    summary: "Minimal test region for scene-harness wiring."
+    description: "A region that exists solely to satisfy the CartographyConfig schema."
+routes: []

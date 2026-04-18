@@ -1,0 +1,93 @@
+tone: cinematic
+lethality: moderate
+magic_level: none
+stat_generation: point_buy
+point_buy_budget: 27
+ability_score_names:
+  - Physique
+  - Reflex
+  - Intellect
+  - Cunning
+  - Resolve
+  - Influence
+allowed_classes:
+  - Pilot
+  - Gambler
+  - Detective
+allowed_races:
+  - Spacer
+  - Human
+class_hp_bases:
+  Pilot: 6
+  Gambler: 5
+  Detective: 6
+confrontations:
+  - type: poker
+    label: Poker
+    category: social
+    resolution_mode: sealed_letter_lookup
+    metric:
+      name: pot
+      direction: ascending
+      starting: 0
+      threshold_low: 0
+    beats:
+      - id: call
+        label: Call
+        metric_delta: 5
+        stat_check: Cunning
+      - id: raise
+        label: Raise
+        metric_delta: 20
+        stat_check: Cunning
+      - id: fold
+        label: Fold
+        metric_delta: 0
+        stat_check: Cunning
+    mood: exploration
+  - type: negotiation
+    label: Negotiation
+    category: social
+    resolution_mode: sealed_letter_lookup
+    metric:
+      name: trust
+      direction: ascending
+      starting: 0
+      threshold_low: 0
+    beats:
+      - id: offer
+        label: Offer
+        metric_delta: 10
+        stat_check: Influence
+      - id: press
+        label: Press
+        metric_delta: 5
+        stat_check: Influence
+      - id: concede
+        label: Concede
+        metric_delta: -5
+        stat_check: Influence
+    mood: exploration
+  - type: dogfight
+    label: Dogfight
+    category: combat
+    resolution_mode: sealed_letter_lookup
+    metric:
+      name: energy
+      direction: descending
+      starting: 60
+      threshold_low: 0
+    beats:
+      - id: straight
+        label: Throttle Up
+        metric_delta: 5
+        stat_check: Reflex
+      - id: bank
+        label: Break Right
+        metric_delta: -5
+        stat_check: Reflex
+      - id: loop
+        label: Vertical Reversal
+        metric_delta: -30
+        stat_check: Reflex
+    mood: combat
