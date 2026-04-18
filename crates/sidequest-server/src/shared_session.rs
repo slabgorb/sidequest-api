@@ -5,6 +5,7 @@
 //! genre:world instance. Per-player state lives in `PlayerState`.
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -264,6 +265,18 @@ pub struct SharedGameSession {
     /// Keyed by `request_id`. Inserted when DiceRequest is broadcast,
     /// consumed when DiceThrow arrives and resolution completes.
     pub pending_dice_requests: HashMap<String, sidequest_protocol::DiceRequestPayload>,
+    /// Story 37-20: timestamp (monotonic) each pending request was first
+    /// inserted via [`Self::insert_pending_dice_request`]. Populated only
+    /// by the chokepoint so the retry detector can flag requests whose
+    /// DiceThrow never came back. Re-inserting the same `request_id`
+    /// preserves the original timestamp — a lost DiceRequest that is
+    /// re-broadcast must keep aging, otherwise the wedge never resolves.
+    /// Entries may outlive their corresponding pending_dice_requests
+    /// entry when callers (dice_dispatch, phantom-player cleanup,
+    /// session.clear) remove requests directly; [`Self::expired_pending_dice_requests`]
+    /// iterates `pending_dice_requests` and only reads this map, so
+    /// orphaned timestamps never surface as retries.
+    pub(crate) pending_dice_request_issued_at: HashMap<String, Instant>,
     /// Dice roll outcome from the most recent resolution (story 34-9).
     /// Set by the DiceThrow handler after resolution; consumed (taken) by the
     /// next PlayerAction dispatch to inject [DICE_OUTCOME: X] into the narrator prompt.
@@ -329,6 +342,7 @@ impl SharedGameSession {
             scene_count: 0,
             region_names: vec![],
             pending_dice_requests: HashMap::new(),
+            pending_dice_request_issued_at: HashMap::new(),
             pending_roll_outcome: None,
             pending_replay_action: None,
             pending_replay_beat_id: None,
@@ -461,6 +475,143 @@ impl SharedGameSession {
     /// [`Self::contains_player`] for the perception_filters roster.
     pub fn has_perception_filter(&self, player_id: &str) -> bool {
         self.perception_filters.contains_key(player_id)
+    }
+
+    /// Story 37-20 chokepoint: insert a pending DiceRequest and record
+    /// its `issued_at` timestamp so the retry detector can flag it when
+    /// the matching DiceThrow never arrives.
+    ///
+    /// **Single-issuer invariant.** This is the *only* sanctioned way to
+    /// add an entry to `pending_dice_requests`. Direct `.insert` calls
+    /// from outside this module are caught by the source-grep wiring
+    /// test in `dice_request_lifecycle_story_37_20_tests.rs`.
+    ///
+    /// **Idempotent.** Re-inserting the same `request_id` leaves both
+    /// the payload and the `issued_at` timestamp untouched. This makes
+    /// retry-re-broadcast safe: the server can re-emit a DiceRequest
+    /// with the same id without resetting the aging clock, so a wedged
+    /// request keeps advancing toward eventual surfacing on the GM
+    /// panel rather than silently restarting its timer.
+    pub fn insert_pending_dice_request(
+        &mut self,
+        request: sidequest_protocol::DiceRequestPayload,
+    ) {
+        let request_id = request.request_id.clone();
+        if let Some(existing) = self.pending_dice_requests.get(&request_id) {
+            // Idempotent — preserve original payload and issued_at. The
+            // same-payload case is benign (retry re-broadcast hits this
+            // branch). A payload *mismatch* on the same id is the
+            // symptom of a chokepoint bypass or a client replaying a
+            // stale id across sessions — the exact failure mode 37-20
+            // was meant to fix. Surface it loudly per the "No Silent
+            // Fallbacks" project rule: tracing::warn gets the bug into
+            // the logs, and a WatcherEvent gets it onto the GM panel.
+            if existing != &request {
+                tracing::warn!(
+                    request_id = %request_id,
+                    rolling_player = %request.rolling_player_id,
+                    "insert_pending_dice_request: duplicate request_id with different payload — \
+                     chokepoint bypass suspected or client replayed a stale id"
+                );
+                crate::WatcherEventBuilder::new(
+                    "dice",
+                    crate::WatcherEventType::ValidationWarning,
+                )
+                .severity(sidequest_telemetry::Severity::Warn)
+                .field("event", "dice_request.duplicate_id_mismatch")
+                .field("request_id", &request_id)
+                .field("rolling_player", &request.rolling_player_id)
+                .send();
+            }
+            return;
+        }
+        self.pending_dice_requests.insert(request_id.clone(), request);
+        self.pending_dice_request_issued_at
+            .insert(request_id, Instant::now());
+    }
+
+    /// Story 37-20 removal chokepoint: drop a resolved DiceRequest from
+    /// both the canonical map and the `issued_at` sidecar atomically.
+    ///
+    /// Callers that previously hit `pending_dice_requests.remove(...)` or
+    /// `.clear()` directly leaked `issued_at` entries for the lifetime of
+    /// the session — harmless for retry correctness (the detector only
+    /// reads the canonical map) but an unbounded-growth invariant break.
+    /// This chokepoint keeps the two maps in lockstep.
+    pub fn remove_pending_dice_request(
+        &mut self,
+        request_id: &str,
+    ) -> Option<sidequest_protocol::DiceRequestPayload> {
+        self.pending_dice_request_issued_at.remove(request_id);
+        self.pending_dice_requests.remove(request_id)
+    }
+
+    /// Story 37-20 clear chokepoint: drop *all* pending DiceRequests and
+    /// their `issued_at` sidecars together. Used by the reconnect / turn-
+    /// barrier reset path that was previously calling
+    /// `pending_dice_requests.clear()` directly.
+    pub fn clear_pending_dice_requests(&mut self) {
+        self.pending_dice_requests.clear();
+        self.pending_dice_request_issued_at.clear();
+    }
+
+    /// Read-only accessor for the `issued_at` sidecar. Integration tests
+    /// use this to assert the two-map lockstep invariant; production
+    /// code has no reason to read the sidecar outside the retry
+    /// detector, which reaches it through `&self` from within this
+    /// module. Writable access is denied by the `pub(crate)` visibility
+    /// on the backing field.
+    pub fn pending_dice_request_issued_at_contains(&self, request_id: &str) -> bool {
+        self.pending_dice_request_issued_at.contains_key(request_id)
+    }
+
+    /// Read-only accessor for the count of `issued_at` sidecar entries.
+    /// Tests use this to verify the clear chokepoint drops both maps.
+    pub fn pending_dice_request_issued_at_len(&self) -> usize {
+        self.pending_dice_request_issued_at.len()
+    }
+
+    /// Story 37-20 retry detector: returns clones of every pending
+    /// DiceRequest whose `issued_at + timeout <= now`. Callers re-emit
+    /// these (same `request_id`) and hit [`crate::emit_dice_request_recovery`]
+    /// so the GM panel's dice channel surfaces the retry.
+    ///
+    /// Iterates `pending_dice_requests` (the canonical set) and reads
+    /// `pending_dice_request_issued_at` by key. The insertion and
+    /// removal chokepoints ([`Self::insert_pending_dice_request`],
+    /// [`Self::remove_pending_dice_request`], [`Self::clear_pending_dice_requests`])
+    /// keep the two maps in lockstep, so a missing `issued_at` entry
+    /// here is a bug — it means someone wrote directly to
+    /// `pending_dice_requests` bypassing the chokepoint. The branch
+    /// below surfaces that with a `tracing::warn!` and then treats the
+    /// request as not-yet-expired (safer than fabricating an `issued_at`
+    /// from `now`, which would defer the retry by a full timeout).
+    pub fn expired_pending_dice_requests(
+        &self,
+        now: Instant,
+        timeout: Duration,
+    ) -> Vec<sidequest_protocol::DiceRequestPayload> {
+        self.pending_dice_requests
+            .iter()
+            .filter_map(|(request_id, payload)| {
+                let issued_at = match self.pending_dice_request_issued_at.get(request_id) {
+                    Some(t) => t,
+                    None => {
+                        tracing::warn!(
+                            request_id = %request_id,
+                            "expired_pending_dice_requests: pending request has no issued_at — \
+                             chokepoint bypass suspected"
+                        );
+                        return None;
+                    }
+                };
+                if now.saturating_duration_since(*issued_at) >= timeout {
+                    Some(payload.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Subscribe to the session broadcast channel.

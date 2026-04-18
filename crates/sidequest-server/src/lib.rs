@@ -135,6 +135,30 @@ pub fn emit_dice_result_broadcast(
         .send();
 }
 
+/// Story 37-20: emit a `dice_request.recovery` WatcherEvent when the
+/// retry detector re-broadcasts a pending DiceRequest whose original
+/// frame was apparently lost. StateTransition + Warning severity so the
+/// GM panel's dice channel visibly distinguishes a retry from an
+/// initial send — the lie detector for "the session is wedged and
+/// nobody noticed."
+pub fn emit_dice_request_recovery(request: &sidequest_protocol::DiceRequestPayload) {
+    WatcherEventBuilder::new("dice", WatcherEventType::StateTransition)
+        .severity(sidequest_telemetry::Severity::Warn)
+        .field("event", "dice_request.recovery")
+        .field("request_id", &request.request_id)
+        .field("rolling_player", &request.rolling_player_id)
+        .field("character_name", &request.character_name)
+        .field("stat", &request.stat)
+        .field("difficulty", request.difficulty.get())
+        // `context` is the human-readable roll flavor ("Break down the door —
+        // strength check") set by the narrator. Riding it on the recovery span
+        // is what lets the GM panel correlate a retry to the specific beat
+        // rather than just "some stat check for some player." Without this
+        // field the panel sees "retry fired" but not "retry for what."
+        .field("context", &request.context)
+        .send();
+}
+
 // ---------------------------------------------------------------------------
 // Confrontation Defs — lookup helper (Story 28-1)
 // ---------------------------------------------------------------------------
@@ -1610,6 +1634,31 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         let mut session_rx: Option<broadcast::Receiver<crate::shared_session::TargetedMessage>> =
             None;
 
+        // Story 37-20: periodic retry tick for pending dice requests whose
+        // DiceThrow never came back (lost WebSocket frame, dropped during
+        // reconnect). Every `DICE_RETRY_CHECK_INTERVAL`, scan the shared
+        // session for requests older than `DICE_REQUEST_TIMEOUT` and
+        // re-broadcast them with the SAME `request_id`. The chokepoint
+        // (`insert_pending_dice_request`) preserves issued_at on re-insert,
+        // so each surfaced request keeps aging until the client finally
+        // responds. Clients dedupe on request_id (InlineDiceTray), so the
+        // per-writer tick is safe under N connections.
+        const DICE_RETRY_CHECK_INTERVAL: std::time::Duration =
+            std::time::Duration::from_secs(5);
+        const DICE_REQUEST_TIMEOUT: std::time::Duration =
+            std::time::Duration::from_secs(30);
+        let mut dice_retry_ticker = tokio::time::interval(DICE_RETRY_CHECK_INTERVAL);
+        // `MissedTickBehavior::Delay` keeps later ticks from bunching if the
+        // executor falls behind (a burst of retries at once would double-emit
+        // OTEL spans and defeat the deduplication contract).
+        dice_retry_ticker
+            .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // `tokio::time::interval` fires its first tick immediately. Consume
+        // it now so the retry detector doesn't run at t=0 (before any
+        // DiceRequest could possibly be pending) — the first real check
+        // lands one interval in.
+        dice_retry_ticker.tick().await;
+
         loop {
             // Lazily subscribe to session broadcast if we don't have a receiver yet.
             // Uses lock().await (not try_lock) to guarantee subscription succeeds.
@@ -1693,6 +1742,26 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         };
                         if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                             break;
+                        }
+                    }
+                }
+                // Story 37-20: retry tick. Wakes every DICE_RETRY_CHECK_INTERVAL,
+                // surfaces requests older than DICE_REQUEST_TIMEOUT, re-broadcasts
+                // them (same request_id), and emits `dice_request.recovery` OTEL.
+                _ = dice_retry_ticker.tick() => {
+                    let guard = shared_session_for_writer.lock().await;
+                    if let Some(ref ss_arc) = *guard {
+                        let ss = ss_arc.lock().await;
+                        let expired = ss.expired_pending_dice_requests(
+                            std::time::Instant::now(),
+                            DICE_REQUEST_TIMEOUT,
+                        );
+                        for req in expired {
+                            emit_dice_request_recovery(&req);
+                            ss.broadcast(GameMessage::DiceRequest {
+                                player_id: "server".to_string(),
+                                payload: req,
+                            });
                         }
                     }
                 }
@@ -2340,8 +2409,7 @@ async fn dispatch_message(
             let holder_guard = shared_session_holder.lock().await;
             if let Some(ref ss_arc) = *holder_guard {
                 let mut ss = ss_arc.lock().await;
-                ss.pending_dice_requests
-                    .insert(dice_req.request_id.clone(), dice_req.clone());
+                ss.insert_pending_dice_request(dice_req.clone());
                 ss.pending_replay_action = Some(replay_action);
                 ss.pending_replay_beat_id = Some(beat_id_str);
                 ss.broadcast(GameMessage::DiceRequest {
@@ -2499,7 +2567,7 @@ async fn dispatch_message(
                             let cleared_requests = ss_guard.pending_dice_requests.len();
                             let cleared_action = ss_guard.pending_replay_action.is_some();
                             let cleared_beat = ss_guard.pending_replay_beat_id.is_some();
-                            ss_guard.pending_dice_requests.clear();
+                            ss_guard.clear_pending_dice_requests();
                             ss_guard.pending_replay_action = None;
                             ss_guard.pending_replay_beat_id = None;
                             ss_guard.pending_roll_outcome = None;
@@ -3154,8 +3222,7 @@ async fn dispatch_message(
                                 let holder_guard = shared_session_holder.lock().await;
                                 if let Some(ref ss_arc) = *holder_guard {
                                     let mut ss = ss_arc.lock().await;
-                                    ss.pending_dice_requests
-                                        .insert(dice_req.request_id.clone(), dice_req);
+                                    ss.insert_pending_dice_request(dice_req);
                                     let action_nbs =
                                         sidequest_protocol::NonBlankString::new(&action_text)
                                             .expect(

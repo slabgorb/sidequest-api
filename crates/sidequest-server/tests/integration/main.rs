@@ -38,6 +38,7 @@ mod npc_turns_beat_system_story_28_8_tests;
 mod ocean_shift_wiring_story_15_25_tests;
 mod party_reconciliation_wiring_story_26_11_tests;
 mod phantom_player_dedup_story_37_19_tests;
+mod dice_request_lifecycle_story_37_20_tests;
 mod prompt_assembled_story_18_6_tests;
 mod rag_wiring_story_15_7_tests;
 mod reconnect_narration_fallback_tests;
