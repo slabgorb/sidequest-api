@@ -12,16 +12,16 @@
 //!      waiting on a throw that would never come, and the only way out
 //!      was kicking the session.
 //!
-//! Compounding issue: there are currently TWO sites that insert into
+//! Compounding issue (pre-fix): two sites inserted into
 //! `SharedGameSession::pending_dice_requests` directly —
-//!   * `src/lib.rs` ~ line 2343 (server-initiated two-phase beat path)
-//!   * `src/lib.rs` ~ line 3157 (client-initiated beat+dice / physics-is-
-//!     the-roll path, which trusts `payload.request_id` from the client)
-//! The second site means the *client* can mint a `request_id` the server
-//! then adopts — a dual-issuer contract. Per 37-20 ACs the server must
-//! be the single issuer, so both sites must funnel through a chokepoint
-//! on `SharedGameSession` that mints (or accepts only server-minted)
-//! ids and timestamps the insertion for retry detection.
+//!   * `src/lib.rs` (server-initiated two-phase beat path)
+//!   * `src/lib.rs` (client-initiated beat+dice / physics-is-the-roll
+//!     path, which trusted `payload.request_id` from the client)
+//! The second site meant the *client* could mint a `request_id` the
+//! server then adopted — a dual-issuer contract. Per 37-20 ACs the
+//! server must be the single issuer, so both sites now funnel through a
+//! chokepoint on `SharedGameSession` that timestamps the insertion for
+//! retry detection.
 //!
 //! Fix contract under test:
 //!
@@ -38,18 +38,17 @@
 //!   C. `sidequest_server::emit_dice_request_recovery(&req)` — OTEL
 //!      watcher span on the "dice" channel, event
 //!      `"dice_request.recovery"`, `StateTransition` type, severity
-//!      `Warning`. The GM panel's lie detector for retries firing.
+//!      `Warn`. The GM panel's lie detector for retries firing.
 //!
 //!   D. Wiring: no call to `pending_dice_requests.insert` anywhere
 //!      under `crates/sidequest-server/src/` except inside
 //!      `shared_session.rs`. Every other site goes through
 //!      `insert_pending_dice_request`.
 //!
-//! This file is the RED harness. It will not compile today because
-//! (A)–(C) do not exist, and (D) will fail because `lib.rs` contains
-//! two direct `.insert` call sites. Dev's job in green is to add the
-//! chokepoint + retry + OTEL helper and funnel both call sites through
-//! it.
+//! Each test below names the contract clause it exercises. Tests A.1,
+//! A.2, B.1, B.2 exercise the insert / retry-detector behavior; C.1
+//! asserts the OTEL span shape; D.1 is the source-grep wiring test that
+//! enforces the single-issuer invariant structurally.
 
 use std::time::{Duration, Instant};
 
@@ -157,6 +156,59 @@ fn insert_pending_dice_request_is_idempotent_on_same_request_id() {
 // Contract B — expired_pending_dice_requests drives retry detection.
 // ---------------------------------------------------------------------------
 
+/// A.3 — duplicate `request_id` with a *different* payload surfaces a
+/// `dice_request.duplicate_id_mismatch` WatcherEvent (No Silent
+/// Fallbacks — reviewer pass 1, rule-checker finding #1). The stored
+/// payload is NOT overwritten (idempotency wins), but the mismatch is
+/// loudly observable on the GM panel so a bypass or stale-id replay
+/// can be diagnosed.
+#[test]
+fn duplicate_request_id_with_different_payload_emits_warning_event() {
+    let _tx = init_global_channel();
+    let mut rx = subscribe_global().expect("global channel initialized above");
+    while rx.try_recv().is_ok() {}
+
+    let mut ss = fresh_session();
+    let original = dice_request("req-dup");
+    ss.insert_pending_dice_request(original.clone());
+
+    // Build a conflicting payload: same id, different stat/context.
+    let mut mutated = original.clone();
+    mutated.stat = "wisdom".to_string();
+    mutated.context = "Replayed from a stale session".to_string();
+    ss.insert_pending_dice_request(mutated);
+
+    // Stored payload must still be the original — idempotency is not
+    // overridden by the warning.
+    let stored = ss
+        .pending_dice_requests
+        .get("req-dup")
+        .expect("original must still be present");
+    assert_eq!(stored.stat, "dexterity", "duplicate must not overwrite");
+
+    // And a loud signal must have hit the GM panel.
+    let mut matched = None;
+    for _ in 0..32 {
+        match rx.try_recv() {
+            Ok(ev) => {
+                if ev.component == "dice"
+                    && ev.fields.get("event").and_then(serde_json::Value::as_str)
+                        == Some("dice_request.duplicate_id_mismatch")
+                {
+                    matched = Some(ev);
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    assert!(
+        matched.is_some(),
+        "duplicate-id mismatch must emit a dice.duplicate_id_mismatch WatcherEvent \
+         — silent idempotency on payload drift is a silent fallback"
+    );
+}
+
 /// B.1 — a freshly inserted request is NOT returned by
 /// `expired_pending_dice_requests` when probed with a timeout larger
 /// than the elapsed time. No false-positive retries.
@@ -182,13 +234,45 @@ fn expired_pending_dice_requests_excludes_fresh_requests() {
 fn resolved_requests_are_not_retried() {
     let mut ss = fresh_session();
     ss.insert_pending_dice_request(dice_request("req-delta"));
-    let _ = ss.pending_dice_requests.remove("req-delta");
+    // Route removal through the chokepoint so the `issued_at` sidecar
+    // stays in lockstep with the canonical map.
+    let removed = ss.remove_pending_dice_request("req-delta");
+    assert!(removed.is_some(), "chokepoint must return the removed payload");
 
     let now_later = Instant::now() + Duration::from_secs(60);
     let expired = ss.expired_pending_dice_requests(now_later, Duration::from_secs(1));
     assert!(
         expired.is_empty(),
         "resolved request must not be re-surfaced by the retry detector"
+    );
+    // Issued_at must have been cleaned up alongside the canonical entry
+    // — no orphan leak (rule-checker finding 13, reviewer pass 1).
+    assert!(
+        !ss.pending_dice_request_issued_at_contains("req-delta"),
+        "remove_pending_dice_request must drop the issued_at sidecar too"
+    );
+}
+
+/// B.3 — `clear_pending_dice_requests` drops both maps together.
+/// Catches the reconnect path at `lib.rs:~2564` where a direct
+/// `pending_dice_requests.clear()` would have left orphan issued_at
+/// entries.
+#[test]
+fn clear_pending_dice_requests_drops_both_maps() {
+    let mut ss = fresh_session();
+    ss.insert_pending_dice_request(dice_request("req-zeta-1"));
+    ss.insert_pending_dice_request(dice_request("req-zeta-2"));
+    assert_eq!(ss.pending_dice_requests.len(), 2);
+    assert_eq!(ss.pending_dice_request_issued_at_len(), 2);
+
+    ss.clear_pending_dice_requests();
+
+    assert!(ss.pending_dice_requests.is_empty());
+    assert_eq!(
+        ss.pending_dice_request_issued_at_len(),
+        0,
+        "clear chokepoint must drop issued_at sidecars to prevent unbounded growth \
+         across reconnect cycles"
     );
 }
 
@@ -204,6 +288,13 @@ fn resolved_requests_are_not_retried() {
 fn emit_dice_request_recovery_sends_watcher_event() {
     let _tx = init_global_channel();
     let mut rx = subscribe_global().expect("global channel initialized above");
+
+    // Drain any events left by a concurrent test on the shared global
+    // channel. Without this, another dice-channel emitter running in
+    // parallel can fill the broadcast buffer and push the event under
+    // assertion past the fixed drain budget below, producing a
+    // false-negative failure.
+    while rx.try_recv().is_ok() {}
 
     let req = dice_request("req-epsilon");
     sidequest_server::emit_dice_request_recovery(&req);

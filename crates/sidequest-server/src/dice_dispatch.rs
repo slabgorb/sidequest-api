@@ -212,7 +212,7 @@ async fn handle_dice_throw_inner(
             return Err(DiceThrowError::NoSharedSession);
         };
         let mut ss = ss_arc.lock().await;
-        ss.pending_dice_requests.remove(&payload.request_id)
+        ss.remove_pending_dice_request(&payload.request_id)
     };
 
     let Some(pending_request) = pending else {

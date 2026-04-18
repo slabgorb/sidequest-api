@@ -147,8 +147,15 @@ pub fn emit_dice_request_recovery(request: &sidequest_protocol::DiceRequestPaylo
         .field("event", "dice_request.recovery")
         .field("request_id", &request.request_id)
         .field("rolling_player", &request.rolling_player_id)
+        .field("character_name", &request.character_name)
         .field("stat", &request.stat)
         .field("difficulty", request.difficulty.get())
+        // `context` is the human-readable roll flavor ("Break down the door —
+        // strength check") set by the narrator. Riding it on the recovery span
+        // is what lets the GM panel correlate a retry to the specific beat
+        // rather than just "some stat check for some player." Without this
+        // field the panel sees "retry fired" but not "retry for what."
+        .field("context", &request.context)
         .send();
 }
 
@@ -1641,9 +1648,15 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         const DICE_REQUEST_TIMEOUT: std::time::Duration =
             std::time::Duration::from_secs(30);
         let mut dice_retry_ticker = tokio::time::interval(DICE_RETRY_CHECK_INTERVAL);
-        // First tick fires immediately; skip it so we don't retry at t=0.
+        // `MissedTickBehavior::Delay` keeps later ticks from bunching if the
+        // executor falls behind (a burst of retries at once would double-emit
+        // OTEL spans and defeat the deduplication contract).
         dice_retry_ticker
             .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // `tokio::time::interval` fires its first tick immediately. Consume
+        // it now so the retry detector doesn't run at t=0 (before any
+        // DiceRequest could possibly be pending) — the first real check
+        // lands one interval in.
         dice_retry_ticker.tick().await;
 
         loop {
@@ -2554,7 +2567,7 @@ async fn dispatch_message(
                             let cleared_requests = ss_guard.pending_dice_requests.len();
                             let cleared_action = ss_guard.pending_replay_action.is_some();
                             let cleared_beat = ss_guard.pending_replay_beat_id.is_some();
-                            ss_guard.pending_dice_requests.clear();
+                            ss_guard.clear_pending_dice_requests();
                             ss_guard.pending_replay_action = None;
                             ss_guard.pending_replay_beat_id = None;
                             ss_guard.pending_roll_outcome = None;

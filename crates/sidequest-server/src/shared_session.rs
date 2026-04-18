@@ -497,13 +497,78 @@ impl SharedGameSession {
         request: sidequest_protocol::DiceRequestPayload,
     ) {
         let request_id = request.request_id.clone();
-        if self.pending_dice_requests.contains_key(&request_id) {
-            // Idempotent — preserve original payload and issued_at.
+        if let Some(existing) = self.pending_dice_requests.get(&request_id) {
+            // Idempotent — preserve original payload and issued_at. The
+            // same-payload case is benign (retry re-broadcast hits this
+            // branch). A payload *mismatch* on the same id is the
+            // symptom of a chokepoint bypass or a client replaying a
+            // stale id across sessions — the exact failure mode 37-20
+            // was meant to fix. Surface it loudly per the "No Silent
+            // Fallbacks" project rule: tracing::warn gets the bug into
+            // the logs, and a WatcherEvent gets it onto the GM panel.
+            if existing != &request {
+                tracing::warn!(
+                    request_id = %request_id,
+                    rolling_player = %request.rolling_player_id,
+                    "insert_pending_dice_request: duplicate request_id with different payload — \
+                     chokepoint bypass suspected or client replayed a stale id"
+                );
+                crate::WatcherEventBuilder::new(
+                    "dice",
+                    crate::WatcherEventType::ValidationWarning,
+                )
+                .severity(sidequest_telemetry::Severity::Warn)
+                .field("event", "dice_request.duplicate_id_mismatch")
+                .field("request_id", &request_id)
+                .field("rolling_player", &request.rolling_player_id)
+                .send();
+            }
             return;
         }
         self.pending_dice_requests.insert(request_id.clone(), request);
         self.pending_dice_request_issued_at
             .insert(request_id, Instant::now());
+    }
+
+    /// Story 37-20 removal chokepoint: drop a resolved DiceRequest from
+    /// both the canonical map and the `issued_at` sidecar atomically.
+    ///
+    /// Callers that previously hit `pending_dice_requests.remove(...)` or
+    /// `.clear()` directly leaked `issued_at` entries for the lifetime of
+    /// the session — harmless for retry correctness (the detector only
+    /// reads the canonical map) but an unbounded-growth invariant break.
+    /// This chokepoint keeps the two maps in lockstep.
+    pub fn remove_pending_dice_request(
+        &mut self,
+        request_id: &str,
+    ) -> Option<sidequest_protocol::DiceRequestPayload> {
+        self.pending_dice_request_issued_at.remove(request_id);
+        self.pending_dice_requests.remove(request_id)
+    }
+
+    /// Story 37-20 clear chokepoint: drop *all* pending DiceRequests and
+    /// their `issued_at` sidecars together. Used by the reconnect / turn-
+    /// barrier reset path that was previously calling
+    /// `pending_dice_requests.clear()` directly.
+    pub fn clear_pending_dice_requests(&mut self) {
+        self.pending_dice_requests.clear();
+        self.pending_dice_request_issued_at.clear();
+    }
+
+    /// Read-only accessor for the `issued_at` sidecar. Integration tests
+    /// use this to assert the two-map lockstep invariant; production
+    /// code has no reason to read the sidecar outside the retry
+    /// detector, which reaches it through `&self` from within this
+    /// module. Writable access is denied by the `pub(crate)` visibility
+    /// on the backing field.
+    pub fn pending_dice_request_issued_at_contains(&self, request_id: &str) -> bool {
+        self.pending_dice_request_issued_at.contains_key(request_id)
+    }
+
+    /// Read-only accessor for the count of `issued_at` sidecar entries.
+    /// Tests use this to verify the clear chokepoint drops both maps.
+    pub fn pending_dice_request_issued_at_len(&self) -> usize {
+        self.pending_dice_request_issued_at.len()
     }
 
     /// Story 37-20 retry detector: returns clones of every pending
@@ -512,13 +577,15 @@ impl SharedGameSession {
     /// so the GM panel's dice channel surfaces the retry.
     ///
     /// Iterates `pending_dice_requests` (the canonical set) and reads
-    /// `pending_dice_request_issued_at` by key. Requests that were
-    /// removed directly from `pending_dice_requests` (dice_dispatch
-    /// resolution, phantom-player cleanup, session clear) never surface
-    /// here — the canonical map is the source of truth. Entries without
-    /// a recorded `issued_at` (there shouldn't be any in production,
-    /// but defense in depth) are treated as "just inserted" and never
-    /// flagged expired.
+    /// `pending_dice_request_issued_at` by key. The insertion and
+    /// removal chokepoints ([`Self::insert_pending_dice_request`],
+    /// [`Self::remove_pending_dice_request`], [`Self::clear_pending_dice_requests`])
+    /// keep the two maps in lockstep, so a missing `issued_at` entry
+    /// here is a bug — it means someone wrote directly to
+    /// `pending_dice_requests` bypassing the chokepoint. The branch
+    /// below surfaces that with a `tracing::warn!` and then treats the
+    /// request as not-yet-expired (safer than fabricating an `issued_at`
+    /// from `now`, which would defer the retry by a full timeout).
     pub fn expired_pending_dice_requests(
         &self,
         now: Instant,
@@ -527,7 +594,17 @@ impl SharedGameSession {
         self.pending_dice_requests
             .iter()
             .filter_map(|(request_id, payload)| {
-                let issued_at = self.pending_dice_request_issued_at.get(request_id)?;
+                let issued_at = match self.pending_dice_request_issued_at.get(request_id) {
+                    Some(t) => t,
+                    None => {
+                        tracing::warn!(
+                            request_id = %request_id,
+                            "expired_pending_dice_requests: pending request has no issued_at — \
+                             chokepoint bypass suspected"
+                        );
+                        return None;
+                    }
+                };
                 if now.saturating_duration_since(*issued_at) >= timeout {
                     Some(payload.clone())
                 } else {
