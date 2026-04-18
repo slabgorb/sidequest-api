@@ -19,7 +19,8 @@ use std::path::PathBuf;
 
 fn dogfight_interactions_path() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../../sidequest-content/genre_packs/space_opera/dogfight/interactions_mvp.yaml")
+    manifest
+        .join("../../../sidequest-content/genre_packs/space_opera/dogfight/interactions_mvp.yaml")
 }
 
 /// The valid calibration tag values from ADR-077.
@@ -38,11 +39,7 @@ fn at_least_some_cells_have_calibration_tags() {
     let table = load_interaction_table(&path)
         .unwrap_or_else(|e| panic!("failed to load dogfight fixture: {e}"));
 
-    let tagged_count = table
-        .cells
-        .iter()
-        .filter(|c| !c.tags.is_empty())
-        .count();
+    let tagged_count = table.cells.iter().filter(|c| !c.tags.is_empty()).count();
 
     assert!(
         tagged_count >= 3,

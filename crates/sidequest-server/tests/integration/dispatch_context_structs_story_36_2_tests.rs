@@ -28,8 +28,7 @@ fn read_dispatch_source(module: &str) -> String {
         .join("src")
         .join("dispatch")
         .join(format!("{module}.rs"));
-    fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read dispatch/{module}.rs: {e}"))
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read dispatch/{module}.rs: {e}"))
 }
 
 fn read_lib_source() -> String {
@@ -124,8 +123,8 @@ fn response_context_struct_exists() {
 #[test]
 fn response_context_has_required_fields() {
     let src = read_dispatch_source("response");
-    let body = extract_struct_body(&src, "ResponseContext")
-        .expect("ResponseContext struct must exist");
+    let body =
+        extract_struct_body(&src, "ResponseContext").expect("ResponseContext struct must exist");
 
     // These fields correspond to the current extra args of build_response_messages
     let required_fields = [
@@ -177,8 +176,8 @@ fn telemetry_context_struct_exists() {
 #[test]
 fn telemetry_context_has_required_fields() {
     let src = read_dispatch_source("telemetry");
-    let body = extract_struct_body(&src, "TelemetryContext")
-        .expect("TelemetryContext struct must exist");
+    let body =
+        extract_struct_body(&src, "TelemetryContext").expect("TelemetryContext struct must exist");
 
     let required_fields = [
         ("turn_number", "which turn this telemetry is for"),
@@ -201,8 +200,8 @@ fn telemetry_context_has_required_fields() {
 #[test]
 fn emit_telemetry_accepts_telemetry_context() {
     let src = read_dispatch_source("telemetry");
-    let sig = extract_fn_signature(&src, "emit_telemetry")
-        .expect("emit_telemetry function must exist");
+    let sig =
+        extract_fn_signature(&src, "emit_telemetry").expect("emit_telemetry function must exist");
 
     assert!(
         sig.contains("TelemetryContext"),
@@ -231,8 +230,8 @@ fn connect_context_struct_exists() {
 #[test]
 fn connect_context_has_core_session_fields() {
     let src = read_dispatch_source("connect");
-    let body = extract_struct_body(&src, "ConnectContext")
-        .expect("ConnectContext struct must exist");
+    let body =
+        extract_struct_body(&src, "ConnectContext").expect("ConnectContext struct must exist");
 
     // Key fields from the current 29-arg signature
     let required_fields = [
@@ -398,8 +397,7 @@ fn self_check_no_vacuous_assertions() {
         .join("tests")
         .join("integration")
         .join("dispatch_context_structs_story_36_2_tests.rs");
-    let src = fs::read_to_string(&test_path)
-        .expect("Should be able to read own test file");
+    let src = fs::read_to_string(&test_path).expect("Should be able to read own test file");
 
     // Count vacuous `let _ = ...` patterns (discarding a Result without assertion).
     // We look for lines where the code has this pattern, excluding the self-check
@@ -413,7 +411,11 @@ fn self_check_no_vacuous_assertions() {
             !trimmed.starts_with("//") && !trimmed.starts_with("*") && !trimmed.starts_with('"')
         })
         // Skip lines that reference the pattern as a search target (this very function)
-        .filter(|line| !line.contains("vacuous_pattern") && !line.contains(".contains(") && !line.contains(".concat()"))
+        .filter(|line| {
+            !line.contains("vacuous_pattern")
+                && !line.contains(".contains(")
+                && !line.contains(".concat()")
+        })
         .filter(|line| line.contains(&vacuous_pattern))
         .count();
     assert_eq!(

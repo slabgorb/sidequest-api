@@ -2169,12 +2169,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         tier_events: &tier_events,
         narration_state_delta,
     };
-    let merged_footnotes = response::build_response_messages(
-        ctx,
-        &response_ctx,
-        &mut messages,
-    )
-    .await;
+    let merged_footnotes =
+        response::build_response_messages(ctx, &response_ctx, &mut messages).await;
 
     // === Deferred post-narration work ===
     // These operations write to fields consumed by the NEXT turn only, not the current one.

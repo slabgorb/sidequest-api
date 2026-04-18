@@ -38,10 +38,7 @@ pub(super) struct TelemetryContext<'a> {
 /// the duplicate event. The TurnRecord bridge in main.rs is still alive — it
 /// continues to drive ADR-073 JSONL training data persistence and the
 /// SubsystemTracker — but no longer emits a competing WatcherEvent.
-pub(super) fn emit_telemetry(
-    ctx: &mut DispatchContext<'_>,
-    tctx: &TelemetryContext<'_>,
-) {
+pub(super) fn emit_telemetry(ctx: &mut DispatchContext<'_>, tctx: &TelemetryContext<'_>) {
     let turn_number = tctx.turn_number;
     let result = tctx.result;
     let turn_start = tctx.turn_start;

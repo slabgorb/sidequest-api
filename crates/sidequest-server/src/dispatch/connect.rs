@@ -41,9 +41,8 @@ pub(crate) struct ConnectContext<'a> {
     pub visual_style: &'a mut Option<sidequest_genre::VisualStyle>,
     pub music_director: &'a mut Option<sidequest_game::MusicDirector>,
     pub audio_mixer: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    pub prerender_scheduler: &'a std::sync::Arc<
-        tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
-    >,
+    pub prerender_scheduler:
+        &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     pub turn_manager: &'a mut sidequest_game::TurnManager,
     pub npc_registry: &'a mut Vec<NpcRegistryEntry>,
     pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
@@ -62,8 +61,10 @@ pub(crate) struct ChargenInitContext<'a> {
     pub visual_style_out: &'a mut Option<sidequest_genre::VisualStyle>,
     pub axes_config_out: &'a mut Option<sidequest_genre::AxesConfig>,
     pub music_director_out: &'a mut Option<sidequest_game::MusicDirector>,
-    pub audio_mixer_lock: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    pub prerender_lock: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
+    pub audio_mixer_lock:
+        &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    pub prerender_lock:
+        &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
     pub opening_seed_out: &'a mut Option<String>,
     pub opening_directive_out: &'a mut Option<String>,
@@ -96,15 +97,15 @@ pub(crate) struct ChargenDispatchContext<'a> {
     pub discovered_regions: &'a mut Vec<String>,
     pub turn_manager: &'a mut sidequest_game::TurnManager,
     pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
-    pub lore_embed_tx: &'a tokio::sync::mpsc::UnboundedSender<super::lore_embed_worker::EmbedRequest>,
+    pub lore_embed_tx:
+        &'a tokio::sync::mpsc::UnboundedSender<super::lore_embed_worker::EmbedRequest>,
     pub shared_session_holder: &'a Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,
     pub music_director: &'a mut Option<sidequest_game::MusicDirector>,
     pub audio_mixer: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    pub prerender_scheduler: &'a std::sync::Arc<
-        tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
-    >,
+    pub prerender_scheduler:
+        &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     pub continuity_corrections: &'a mut String,
     pub quest_log: &'a mut HashMap<String, String>,
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
@@ -2618,7 +2619,32 @@ pub(crate) async fn dispatch_character_creation(
                                     if let Some(ref cj) = *character_json_store {
                                         transferred.character_json = Some(cj.clone());
                                     }
-                                    ss.players.insert(player_id.to_string(), transferred);
+                                    // Route through the dedup chokepoint for code-path
+                                    // uniformity. The old entry was already removed above,
+                                    // so dedup's find() cannot match and the call will
+                                    // return None at runtime — the call site exists to
+                                    // satisfy the source-level wiring invariant (story 37-19,
+                                    // AC-7). The debug_assert pins the invariant so a future
+                                    // reorder that lets dedup fire here will surface loudly
+                                    // in test builds rather than silently leaking an old_pid.
+                                    let dedup_redundant =
+                                        ss.insert_player_dedup_by_name(player_id, transferred);
+                                    debug_assert!(
+                                        dedup_redundant.is_none(),
+                                        "reconnect-transfer path already removed old={old:?} above; \
+                                         chokepoint should find no phantom. Got: {dedup_redundant:?}"
+                                    );
+                                    if let Some(unexpected_pid) = dedup_redundant {
+                                        // Production safety net: if the invariant ever breaks
+                                        // in release builds (debug_assert is compiled out),
+                                        // still reconcile rather than silently leak.
+                                        tracing::warn!(
+                                            unexpected_pid = %unexpected_pid,
+                                            new_pid = %player_id,
+                                            "reconnect-transfer dedup fired unexpectedly — reconciling defensively"
+                                        );
+                                        ss.reconcile_removed_player(&unexpected_pid);
+                                    }
                                 }
                                 // Update barrier roster: swap old player_id for new one
                                 if let Some(ref barrier) = ss.turn_barrier {
@@ -2722,7 +2748,22 @@ pub(crate) async fn dispatch_character_creation(
 
                             if !is_reconnect {
                                 let ps = shared_session::PlayerState::new(connecting_name.clone());
-                                ss.players.insert(player_id.to_string(), ps);
+                                // Single dedup chokepoint for all player inserts (story 37-19).
+                                // is_reconnect==false is a semantic precondition (no phantom
+                                // expected), not a type guarantee — if a handshake race ever
+                                // lets dedup fire here, reconcile defensively instead of
+                                // silently dropping the returned old_pid.
+                                if let Some(unexpected_pid) =
+                                    ss.insert_player_dedup_by_name(player_id, ps)
+                                {
+                                    tracing::warn!(
+                                        unexpected_pid = %unexpected_pid,
+                                        new_pid = %player_id,
+                                        player_name = %connecting_name,
+                                        "fresh-connect dedup fired unexpectedly — reconciling defensively"
+                                    );
+                                    ss.reconcile_removed_player(&unexpected_pid);
+                                }
                                 // Populate character data on the PlayerState
                                 if let Some(p) = ss.players.get_mut(player_id) {
                                     p.character_name =
