@@ -1,0 +1,43 @@
+name: Poker — Test Fixture
+genre: scene_harness_pack
+world: scene_harness_world
+description: Self-contained test fixture for poker confrontation wiring.
+player_name: fixture-poker
+
+character:
+  name: "Test Gambler"
+  description: "A test character for the poker scene-harness wiring gate."
+  personality: "Composed under pressure."
+  level: 3
+  hp: 18
+  max_hp: 20
+  ac: 12
+  inventory:
+    items: []
+    gold: 100
+  statuses: []
+  backstory: "Test backstory — exists only to satisfy the NonBlankString deserialization path."
+  narrative_state: "Seated at the test table."
+  hooks:
+    - "test hook"
+  char_class: Gambler
+  race: Human
+  pronouns: "they/them"
+  stats:
+    Physique: 10
+    Reflex: 12
+    Intellect: 14
+    Cunning: 16
+    Resolve: 12
+    Influence: 10
+
+location: "Test Location"
+turn: 1
+
+npcs:
+  - name: "Test NPC"
+    role: opponent
+    disposition: 0
+
+encounter:
+  type: poker

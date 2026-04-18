@@ -1,0 +1,4 @@
+name: Scene Harness Test Pack
+version: "0.1.0"
+description: "Self-contained fixture pack for scene_harness_wiring tests — defines poker, negotiation, and dogfight confrontations. No coupling to shipped content."
+min_sidequest_version: "0.1.0"

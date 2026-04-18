@@ -1,0 +1,4 @@
+name: Scene Harness Test World
+slug: scene_harness_world
+description: "Minimal world for scene_harness_wiring tests. Zero coupling to shipped content."
+starting_location: test_location
