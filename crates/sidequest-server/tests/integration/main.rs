@@ -11,6 +11,7 @@ mod canonical_snapshot_story_15_8_tests;
 mod chargen_back_action_wiring_story_37_7_tests;
 mod confrontation_beats_wiring_story_28_3_tests;
 mod confrontation_defs_wiring_story_28_1_tests;
+mod dispatch_context_structs_story_36_2_tests;
 mod conlang_wiring_story_15_19_tests;
 mod dice_dispatch_wiring_story_34_4_tests;
 mod dice_outcome_wiring_story_34_9_tests;

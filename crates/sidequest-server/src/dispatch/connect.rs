@@ -20,44 +20,131 @@ use crate::session::Session;
 use crate::shared_session;
 use crate::{error_response, AppState, NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
 
-// 29 args — way over clippy's limit of 7. This function is the session
-// initialization entry point and needs a dedicated refactor story to fold
-// the per-session state into a single ConnectContext struct. Allowing the
-// lint until that refactor lands.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn dispatch_connect(
-    payload: &SessionEventPayload,
-    session: &mut Session,
-    builder: &mut Option<CharacterBuilder>,
-    player_name_store: &mut Option<String>,
-    character_json_store: &mut Option<serde_json::Value>,
-    character_name_store: &mut Option<String>,
-    character_hp: &mut i32,
-    character_max_hp: &mut i32,
-    current_location: &mut String,
-    discovered_regions: &mut Vec<String>,
-    trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
-    world_context: &mut String,
-    axes_config: &mut Option<sidequest_genre::AxesConfig>,
-    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
-    visual_style: &mut Option<sidequest_genre::VisualStyle>,
-    music_director: &mut Option<sidequest_game::MusicDirector>,
-    audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    prerender_scheduler: &std::sync::Arc<
+/// Per-session mutable state for the connect handshake. Bundles the 29
+/// individual mutable references that `dispatch_connect` previously took
+/// (story 36-2).
+pub(crate) struct ConnectContext<'a> {
+    pub session: &'a mut Session,
+    pub builder: &'a mut Option<CharacterBuilder>,
+    pub player_name_store: &'a mut Option<String>,
+    pub character_json_store: &'a mut Option<serde_json::Value>,
+    pub character_name_store: &'a mut Option<String>,
+    pub character_hp: &'a mut i32,
+    pub character_max_hp: &'a mut i32,
+    pub current_location: &'a mut String,
+    pub discovered_regions: &'a mut Vec<String>,
+    pub trope_defs: &'a mut Vec<sidequest_genre::TropeDefinition>,
+    pub world_context: &'a mut String,
+    pub axes_config: &'a mut Option<sidequest_genre::AxesConfig>,
+    pub axis_values: &'a mut Vec<sidequest_game::axis::AxisValue>,
+    pub visual_style: &'a mut Option<sidequest_genre::VisualStyle>,
+    pub music_director: &'a mut Option<sidequest_game::MusicDirector>,
+    pub audio_mixer: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    pub prerender_scheduler: &'a std::sync::Arc<
         tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
     >,
-    turn_manager: &mut sidequest_game::TurnManager,
-    npc_registry: &mut Vec<NpcRegistryEntry>,
-    lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
-    opening_seed: &mut Option<String>,
-    opening_directive: &mut Option<String>,
+    pub turn_manager: &'a mut sidequest_game::TurnManager,
+    pub npc_registry: &'a mut Vec<NpcRegistryEntry>,
+    pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
+    pub opening_seed: &'a mut Option<String>,
+    pub opening_directive: &'a mut Option<String>,
+    pub inventory: &'a mut sidequest_game::Inventory,
+    pub snapshot: &'a mut sidequest_game::state::GameSnapshot,
+}
+
+/// Output slots and shared state for genre pack loading during character
+/// creation initialization (story 36-2).
+pub(crate) struct ChargenInitContext<'a> {
+    pub builder: &'a mut Option<CharacterBuilder>,
+    pub trope_defs_out: &'a mut Vec<sidequest_genre::TropeDefinition>,
+    pub world_context_out: &'a mut String,
+    pub visual_style_out: &'a mut Option<sidequest_genre::VisualStyle>,
+    pub axes_config_out: &'a mut Option<sidequest_genre::AxesConfig>,
+    pub music_director_out: &'a mut Option<sidequest_game::MusicDirector>,
+    pub audio_mixer_lock: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    pub prerender_lock: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
+    pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
+    pub opening_seed_out: &'a mut Option<String>,
+    pub opening_directive_out: &'a mut Option<String>,
+}
+
+/// Full mutable state for character creation dispatch — character state,
+/// session state, and shared infrastructure (story 36-2).
+pub(crate) struct ChargenDispatchContext<'a> {
+    pub session: &'a mut Session,
+    pub builder: &'a mut Option<CharacterBuilder>,
+    pub player_name_store: &'a mut Option<String>,
+    pub character_json_store: &'a mut Option<serde_json::Value>,
+    pub character_name_store: &'a mut Option<String>,
+    pub character_hp: &'a mut i32,
+    pub character_max_hp: &'a mut i32,
+    pub character_level: &'a mut u32,
+    pub character_xp: &'a mut u32,
+    pub current_location: &'a mut String,
+    pub inventory: &'a mut sidequest_game::Inventory,
+    pub trope_states: &'a mut Vec<sidequest_game::trope::TropeState>,
+    pub trope_defs: &'a mut Vec<sidequest_genre::TropeDefinition>,
+    pub world_context: &'a str,
+    pub opening_seed: &'a Option<String>,
+    pub opening_directive: &'a mut Option<String>,
+    pub axes_config: &'a Option<sidequest_genre::AxesConfig>,
+    pub axis_values: &'a mut Vec<sidequest_game::axis::AxisValue>,
+    pub visual_style: &'a Option<sidequest_genre::VisualStyle>,
+    pub npc_registry: &'a mut Vec<NpcRegistryEntry>,
+    pub narration_history: &'a mut Vec<String>,
+    pub discovered_regions: &'a mut Vec<String>,
+    pub turn_manager: &'a mut sidequest_game::TurnManager,
+    pub lore_store: &'a std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
+    pub lore_embed_tx: &'a tokio::sync::mpsc::UnboundedSender<super::lore_embed_worker::EmbedRequest>,
+    pub shared_session_holder: &'a Arc<
+        tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
+    >,
+    pub music_director: &'a mut Option<sidequest_game::MusicDirector>,
+    pub audio_mixer: &'a std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    pub prerender_scheduler: &'a std::sync::Arc<
+        tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
+    >,
+    pub continuity_corrections: &'a mut String,
+    pub quest_log: &'a mut HashMap<String, String>,
+    pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
+    pub achievement_tracker: &'a mut sidequest_game::achievement::AchievementTracker,
+    pub snapshot: &'a mut sidequest_game::state::GameSnapshot,
+    pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
+    pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
+    pub pending_trope_context: &'a mut Option<String>,
+    pub tx: &'a tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
+}
+
+pub(crate) async fn dispatch_connect(
+    payload: &SessionEventPayload,
+    ctx: &mut ConnectContext<'_>,
     state: &AppState,
     player_id: &str,
-    _continuity_corrections: &mut String,
-    inventory: &mut sidequest_game::Inventory,
-    snapshot: &mut sidequest_game::state::GameSnapshot,
-    _tx: &tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
 ) -> Vec<GameMessage> {
+    let session = &mut *ctx.session;
+    let builder = &mut *ctx.builder;
+    let player_name_store = &mut *ctx.player_name_store;
+    let character_json_store = &mut *ctx.character_json_store;
+    let character_name_store = &mut *ctx.character_name_store;
+    let character_hp = &mut *ctx.character_hp;
+    let character_max_hp = &mut *ctx.character_max_hp;
+    let current_location = &mut *ctx.current_location;
+    let discovered_regions = &mut *ctx.discovered_regions;
+    let trope_defs = &mut *ctx.trope_defs;
+    let world_context = &mut *ctx.world_context;
+    let axes_config = &mut *ctx.axes_config;
+    let axis_values = &mut *ctx.axis_values;
+    let visual_style = &mut *ctx.visual_style;
+    let music_director = &mut *ctx.music_director;
+    let audio_mixer = &*ctx.audio_mixer;
+    let prerender_scheduler = &*ctx.prerender_scheduler;
+    let turn_manager = &mut *ctx.turn_manager;
+    let npc_registry = &mut *ctx.npc_registry;
+    let lore_store = &*ctx.lore_store;
+    let opening_seed = &mut *ctx.opening_seed;
+    let opening_directive = &mut *ctx.opening_directive;
+    let inventory = &mut *ctx.inventory;
+    let snapshot = &mut *ctx.snapshot;
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
     let pname = payload.player_name.as_deref().unwrap_or("Player");
@@ -937,17 +1024,19 @@ pub(crate) async fn dispatch_connect(
                         responses.push(connected_msg);
                         responses.extend(
                             start_character_creation(
-                                builder,
-                                trope_defs,
-                                world_context,
-                                visual_style,
-                                axes_config,
-                                music_director,
-                                audio_mixer,
-                                prerender_scheduler,
-                                lore_store,
-                                opening_seed,
-                                opening_directive,
+                                &mut ChargenInitContext {
+                                    builder,
+                                    trope_defs_out: trope_defs,
+                                    world_context_out: world_context,
+                                    visual_style_out: visual_style,
+                                    axes_config_out: axes_config,
+                                    music_director_out: music_director,
+                                    audio_mixer_lock: audio_mixer,
+                                    prerender_lock: prerender_scheduler,
+                                    lore_store,
+                                    opening_seed_out: opening_seed,
+                                    opening_directive_out: opening_directive,
+                                },
                                 genre,
                                 world,
                                 state,
@@ -961,17 +1050,19 @@ pub(crate) async fn dispatch_connect(
                         responses.push(connected_msg);
                         responses.extend(
                             start_character_creation(
-                                builder,
-                                trope_defs,
-                                world_context,
-                                visual_style,
-                                axes_config,
-                                music_director,
-                                audio_mixer,
-                                prerender_scheduler,
-                                lore_store,
-                                opening_seed,
-                                opening_directive,
+                                &mut ChargenInitContext {
+                                    builder,
+                                    trope_defs_out: trope_defs,
+                                    world_context_out: world_context,
+                                    visual_style_out: visual_style,
+                                    axes_config_out: axes_config,
+                                    music_director_out: music_director,
+                                    audio_mixer_lock: audio_mixer,
+                                    prerender_lock: prerender_scheduler,
+                                    lore_store,
+                                    opening_seed_out: opening_seed,
+                                    opening_directive_out: opening_directive,
+                                },
                                 genre,
                                 world,
                                 state,
@@ -986,17 +1077,19 @@ pub(crate) async fn dispatch_connect(
                 responses.push(connected_msg);
                 responses.extend(
                     start_character_creation(
-                        builder,
-                        trope_defs,
-                        world_context,
-                        visual_style,
-                        axes_config,
-                        music_director,
-                        audio_mixer,
-                        prerender_scheduler,
-                        lore_store,
-                        opening_seed,
-                        opening_directive,
+                        &mut ChargenInitContext {
+                            builder,
+                            trope_defs_out: trope_defs,
+                            world_context_out: world_context,
+                            visual_style_out: visual_style,
+                            axes_config_out: axes_config,
+                            music_director_out: music_director,
+                            audio_mixer_lock: audio_mixer,
+                            prerender_lock: prerender_scheduler,
+                            lore_store,
+                            opening_seed_out: opening_seed,
+                            opening_directive_out: opening_directive,
+                        },
                         genre,
                         world,
                         state,
@@ -1038,26 +1131,24 @@ pub(crate) async fn dispatch_connect(
 }
 
 /// Load genre pack, create CharacterBuilder, return first scene message + trope defs + world context.
-// 15 args — same refactor candidate as `dispatch_connect` above. Fold into a
-// `StartCharacterCreationContext` struct in the follow-up refactor.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn start_character_creation(
-    builder: &mut Option<CharacterBuilder>,
-    trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
-    world_context_out: &mut String,
-    visual_style_out: &mut Option<sidequest_genre::VisualStyle>,
-    axes_config_out: &mut Option<sidequest_genre::AxesConfig>,
-    music_director_out: &mut Option<sidequest_game::MusicDirector>,
-    audio_mixer_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
-    lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
-    opening_seed_out: &mut Option<String>,
-    opening_directive_out: &mut Option<String>,
+    ictx: &mut ChargenInitContext<'_>,
     genre: &str,
     world_slug: &str,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
+    let builder = &mut *ictx.builder;
+    let trope_defs_out = &mut *ictx.trope_defs_out;
+    let world_context_out = &mut *ictx.world_context_out;
+    let visual_style_out = &mut *ictx.visual_style_out;
+    let axes_config_out = &mut *ictx.axes_config_out;
+    let music_director_out = &mut *ictx.music_director_out;
+    let audio_mixer_lock = &*ictx.audio_mixer_lock;
+    let prerender_lock = &*ictx.prerender_lock;
+    let lore_store = &*ictx.lore_store;
+    let opening_seed_out = &mut *ictx.opening_seed_out;
+    let opening_directive_out = &mut *ictx.opening_directive_out;
     let genre_code = match GenreCode::new(genre) {
         Ok(c) => c,
         Err(e) => {
@@ -1209,54 +1300,50 @@ pub(crate) async fn start_character_creation(
 }
 
 /// Handle CHARACTER_CREATION messages (client choices).
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_character_creation(
     payload: &CharacterCreationPayload,
-    session: &mut Session,
-    builder: &mut Option<CharacterBuilder>,
-    player_name_store: &mut Option<String>,
-    character_json_store: &mut Option<serde_json::Value>,
-    character_name_store: &mut Option<String>,
-    character_hp: &mut i32,
-    character_max_hp: &mut i32,
-    character_level: &mut u32,
-    character_xp: &mut u32,
-    current_location: &mut String,
-    inventory: &mut sidequest_game::Inventory,
-    trope_states: &mut Vec<sidequest_game::trope::TropeState>,
-    trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
-    world_context: &str,
-    opening_seed: &Option<String>,
-    opening_directive: &mut Option<String>,
-    axes_config: &Option<sidequest_genre::AxesConfig>,
-    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
-    visual_style: &Option<sidequest_genre::VisualStyle>,
-    npc_registry: &mut Vec<NpcRegistryEntry>,
-    narration_history: &mut Vec<String>,
-    discovered_regions: &mut Vec<String>,
-    turn_manager: &mut sidequest_game::TurnManager,
-    lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
-    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<super::lore_embed_worker::EmbedRequest>,
-    shared_session_holder: &Arc<
-        tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
-    >,
-    music_director: &mut Option<sidequest_game::MusicDirector>,
-    audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    prerender_scheduler: &std::sync::Arc<
-        tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
-    >,
+    cctx: &mut ChargenDispatchContext<'_>,
     state: &AppState,
     player_id: &str,
-    continuity_corrections: &mut String,
-    quest_log: &mut HashMap<String, String>,
-    genie_wishes: &mut Vec<sidequest_game::GenieWish>,
-    achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
-    snapshot: &mut sidequest_game::state::GameSnapshot,
-    narrator_verbosity: sidequest_protocol::NarratorVerbosity,
-    narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
-    pending_trope_context: &mut Option<String>,
-    tx: &tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
 ) -> Vec<GameMessage> {
+    let session = &mut *cctx.session;
+    let builder = &mut *cctx.builder;
+    let player_name_store = &mut *cctx.player_name_store;
+    let character_json_store = &mut *cctx.character_json_store;
+    let character_name_store = &mut *cctx.character_name_store;
+    let character_hp = &mut *cctx.character_hp;
+    let character_max_hp = &mut *cctx.character_max_hp;
+    let character_level = &mut *cctx.character_level;
+    let character_xp = &mut *cctx.character_xp;
+    let current_location = &mut *cctx.current_location;
+    let inventory = &mut *cctx.inventory;
+    let trope_states = &mut *cctx.trope_states;
+    let trope_defs = &mut *cctx.trope_defs;
+    let world_context: &str = cctx.world_context;
+    let opening_seed = &*cctx.opening_seed;
+    let opening_directive = &mut *cctx.opening_directive;
+    let axes_config = &*cctx.axes_config;
+    let axis_values = &mut *cctx.axis_values;
+    let visual_style = &*cctx.visual_style;
+    let npc_registry = &mut *cctx.npc_registry;
+    let narration_history = &mut *cctx.narration_history;
+    let discovered_regions = &mut *cctx.discovered_regions;
+    let turn_manager = &mut *cctx.turn_manager;
+    let lore_store = &*cctx.lore_store;
+    let lore_embed_tx = &*cctx.lore_embed_tx;
+    let shared_session_holder = &*cctx.shared_session_holder;
+    let music_director = &mut *cctx.music_director;
+    let audio_mixer = &*cctx.audio_mixer;
+    let prerender_scheduler = &*cctx.prerender_scheduler;
+    let continuity_corrections = &mut *cctx.continuity_corrections;
+    let quest_log = &mut *cctx.quest_log;
+    let genie_wishes = &mut *cctx.genie_wishes;
+    let achievement_tracker = &mut *cctx.achievement_tracker;
+    let snapshot = &mut *cctx.snapshot;
+    let narrator_verbosity = cctx.narrator_verbosity;
+    let narrator_vocabulary = cctx.narrator_vocabulary;
+    let pending_trope_context = &mut *cctx.pending_trope_context;
+    let tx = &*cctx.tx;
     let b = match builder.as_mut() {
         Some(b) => b,
         None => return vec![error_response(player_id, "No character builder active")],

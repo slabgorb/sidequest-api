@@ -20,6 +20,16 @@ fn nbs_ctx(value: &str, what: &'static str) -> NonBlankString {
         .unwrap_or_else(|_| panic!("{what} must be non-blank at dispatch time"))
 }
 
+/// Per-turn data passed to `build_response_messages` alongside the
+/// long-lived `DispatchContext`. Bundles the turn-specific values that were
+/// previously individual parameters (story 36-2).
+pub(super) struct ResponseContext<'a> {
+    pub clean_narration: &'a str,
+    pub result: &'a sidequest_agents::orchestrator::ActionResult,
+    pub tier_events: &'a [sidequest_game::AffinityTierUpEvent],
+    pub narration_state_delta: sidequest_protocol::StateDelta,
+}
+
 /// Build narration, party status, inventory, and RAG messages.
 ///
 /// Story 15-20: `narration_state_delta` is pre-built via `build_protocol_delta`
@@ -31,18 +41,15 @@ fn nbs_ctx(value: &str, what: &'static str) -> NonBlankString {
 /// is the same set baked into the Narration message sent to the acting
 /// player, guaranteeing parity between what the acting player sees and
 /// what gets rebroadcast to observers.
-// 8 args — fold into a `ResponseContext` struct in the dispatch refactor.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn build_response_messages(
     ctx: &mut DispatchContext<'_>,
-    clean_narration: &str,
-    _narration_text: &str,
-    result: &sidequest_agents::orchestrator::ActionResult,
-    tier_events: &[sidequest_game::AffinityTierUpEvent],
-    _effective_action: &str,
+    rctx: &ResponseContext<'_>,
     messages: &mut Vec<GameMessage>,
-    narration_state_delta: sidequest_protocol::StateDelta,
 ) -> Vec<sidequest_protocol::Footnote> {
+    let clean_narration = rctx.clean_narration;
+    let result = rctx.result;
+    let tier_events = rctx.tier_events;
+    let narration_state_delta = rctx.narration_state_delta.clone();
     // Merge narrator footnotes with affinity tier-up events
     let mut footnotes = result.footnotes.clone();
     for event in tier_events {
