@@ -16,6 +16,8 @@ pub(crate) mod extraction;
 pub(crate) mod npc_context;
 #[cfg(test)]
 mod otel_dice_spans_34_11_tests;
+#[cfg(test)]
+mod otel_npc_trope_spans_37_24_tests;
 pub mod render_integration;
 pub mod scrapbook;
 pub(crate) mod session;
