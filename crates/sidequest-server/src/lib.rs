@@ -3108,11 +3108,66 @@ async fn dispatch_message(
                         .map(|pack| pack.rules.confrontations.clone())
                         .unwrap_or_default()
                 };
+                // Emit a ValidationWarning on each skip path so the GM panel
+                // sees beat-dispatch failures instead of a silent no-op
+                // (review cycle-3 edge-hunter finding). Dice resolution still
+                // falls through to `handle_dice_throw` below — which will
+                // surface an "unknown request_id" error cleanly — but the
+                // beat-registration failure gets its own structured signal.
+                if snapshot.encounter.is_none() {
+                    WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                        .field("event", "beat_dispatch.no_active_encounter")
+                        .field("beat_id", beat_id.as_str())
+                        .severity(Severity::Warn)
+                        .send();
+                    tracing::warn!(
+                        beat = %beat_id,
+                        "client-side beat+dice: no active encounter — skipping beat registration"
+                    );
+                }
                 if let Some(ref mut encounter) = snapshot.encounter {
-                    if let Some(def) =
-                        crate::find_confrontation_def(&conf_defs, &encounter.encounter_type)
-                    {
-                        if let Some(beat) = def.beats.iter().find(|b| b.id == *beat_id) {
+                    let def_opt =
+                        crate::find_confrontation_def(&conf_defs, &encounter.encounter_type);
+                    if def_opt.is_none() {
+                        WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                            .field("event", "beat_dispatch.no_confrontation_def")
+                            .field("beat_id", beat_id.as_str())
+                            .field("encounter_type", &encounter.encounter_type)
+                            .severity(Severity::Warn)
+                            .send();
+                        tracing::warn!(
+                            beat = %beat_id,
+                            encounter_type = %encounter.encounter_type,
+                            "client-side beat+dice: no confrontation def for encounter type — skipping beat registration"
+                        );
+                    }
+                    if let Some(def) = def_opt {
+                        let beat_opt = def.beats.iter().find(|b| b.id == *beat_id);
+                        if beat_opt.is_none() {
+                            WatcherEventBuilder::new(
+                                "encounter",
+                                WatcherEventType::ValidationWarning,
+                            )
+                            .field("event", "beat_dispatch.unknown_beat_id")
+                            .field("beat_id", beat_id.as_str())
+                            .field("encounter_type", &encounter.encounter_type)
+                            .field(
+                                "available_ids",
+                                def.beats
+                                    .iter()
+                                    .map(|b| b.id.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(","),
+                            )
+                            .severity(Severity::Warn)
+                            .send();
+                            tracing::warn!(
+                                beat = %beat_id,
+                                encounter_type = %encounter.encounter_type,
+                                "client-side beat+dice: unknown beat_id — skipping beat registration"
+                            );
+                        }
+                        if let Some(beat) = beat_opt {
                             let stat_check = beat.stat_check.clone();
                             let beat_label = beat.label.clone();
                             let metric_name = encounter.metric.name.clone();
