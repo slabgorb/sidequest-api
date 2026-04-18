@@ -151,6 +151,7 @@ fn snapshot_with_merchant(
         affinities: vec![],
         is_friendly: true,
         resolved_archetype: None,
+        archetype_provenance: None,
     };
 
     GameSnapshot {

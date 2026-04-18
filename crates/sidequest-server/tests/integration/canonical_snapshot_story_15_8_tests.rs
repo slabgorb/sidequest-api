@@ -101,6 +101,7 @@ fn dispatch_snapshot() -> GameSnapshot {
             affinities: vec![],
             is_friendly: true,
             resolved_archetype: None,
+            archetype_provenance: None,
         }],
         npcs: vec![],
         location: "Rusted Bazaar".to_string(),

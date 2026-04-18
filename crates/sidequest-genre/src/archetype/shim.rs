@@ -35,7 +35,8 @@ pub enum ResolutionSource {
 /// `resolved` is the Layered framework's archetype value. `source` and
 /// `weight` are lookup metadata — not layered fields, because they describe
 /// *where* the resolution came from rather than *what* value is at each
-/// tier.
+/// tier. `provenance` is the tier-annotated source record that rides out
+/// to the UI on `CharacterState.archetype_provenance` (Phase G2).
 #[derive(Debug, Clone)]
 pub struct ArchetypeResolution {
     /// The resolved archetype value (name, lore, faction, etc.).
@@ -44,6 +45,8 @@ pub struct ArchetypeResolution {
     pub source: ResolutionSource,
     /// Pairing-weight classification from the genre's constraint table.
     pub weight: PairingWeight,
+    /// Tier + file + merge-trail of the final resolution, for GM-panel display.
+    pub provenance: Provenance,
 }
 
 /// Resolve a `(jungian, rpg_role)` pair through the archetype inheritance chain.
@@ -159,6 +162,7 @@ pub fn resolve_archetype(
         resolved,
         source,
         weight,
+        provenance,
     })
 }
 

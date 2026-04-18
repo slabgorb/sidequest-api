@@ -528,5 +528,6 @@ fn make_character(name: &str, current_hp: i32, max_hp: i32, is_friendly: bool) -
         affinities: vec![],
         is_friendly,
         resolved_archetype: None,
+        archetype_provenance: None,
     }
 }

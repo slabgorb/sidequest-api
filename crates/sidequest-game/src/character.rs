@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use sidequest_protocol::NonBlankString;
+use sidequest_protocol::{NonBlankString, Provenance};
 
 use crate::ability::AbilityDefinition;
 use crate::affinity::AffinityState;
@@ -68,6 +68,14 @@ pub struct Character {
     /// constraints and funnels happens in the dispatch layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_archetype: Option<String>,
+
+    /// Provenance for `resolved_archetype` — which tier (Global / Genre /
+    /// World / Culture) and which YAML file produced the final archetype
+    /// value, plus the full merge trail. Populated by the dispatch layer
+    /// at the same call site that sets `resolved_archetype`. Flows out to
+    /// the UI on `CharacterState.archetype_provenance` for GM-panel display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archetype_provenance: Option<Provenance>,
 }
 
 fn default_friendly() -> bool {
@@ -182,6 +190,7 @@ mod tests {
             affinities: vec![],
             is_friendly: true,
             resolved_archetype: None,
+            archetype_provenance: None,
         }
     }
 

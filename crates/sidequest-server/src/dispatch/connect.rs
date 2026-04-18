@@ -258,6 +258,7 @@ pub(crate) async fn dispatch_connect(
                                                 .iter()
                                                 .map(|i| i.name.as_str().to_string())
                                                 .collect(),
+                                            archetype_provenance: c.archetype_provenance.clone(),
                                         })
                                         .collect(),
                                     location: sidequest_protocol::NonBlankString::new(
@@ -1493,6 +1494,11 @@ pub(crate) async fn dispatch_character_creation(
                                             Ok(result) => {
                                                 character.resolved_archetype =
                                                     Some(result.resolved.name.clone());
+                                                // Phase G2: attach tier-annotated
+                                                // provenance so the GM panel can
+                                                // surface the source layer.
+                                                character.archetype_provenance =
+                                                    Some(result.provenance.clone());
 
                                                 WatcherEventBuilder::new(
                                                     "archetype_resolution",
@@ -2042,6 +2048,7 @@ pub(crate) async fn dispatch_character_creation(
                                         .carried()
                                         .map(|i| i.name.as_str().to_string())
                                         .collect(),
+                                    archetype_provenance: character.archetype_provenance.clone(),
                                 }],
                                 location: sidequest_protocol::NonBlankString::new(current_location)
                                     .expect("current_location is non-empty at session ready"),
@@ -2521,6 +2528,7 @@ pub(crate) async fn dispatch_character_creation(
                                         affinities: vec![],
                                         is_friendly: true,
                                         resolved_archetype: None,
+                                        archetype_provenance: None,
                                     };
                                     let _ =
                                         barrier.add_player(player_id.to_string(), placeholder_char);
@@ -2830,6 +2838,7 @@ pub(crate) async fn dispatch_character_creation(
                                             affinities: vec![],
                                             is_friendly: true,
                                             resolved_archetype: None,
+                                            archetype_provenance: None,
                                         }
                                     };
                                     let _ =

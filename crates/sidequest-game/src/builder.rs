@@ -1264,6 +1264,9 @@ impl CharacterBuilder {
                 .jungian_hint
                 .as_ref()
                 .and_then(|j| acc.rpg_role_hint.as_ref().map(|r| format!("{j}/{r}"))),
+            // Populated later by the dispatch layer (connect.rs) once the
+            // archetype is resolved through the tiered resolver.
+            archetype_provenance: None,
         };
 
         Ok(character)

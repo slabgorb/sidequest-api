@@ -72,6 +72,7 @@ fn rich_character() -> Character {
         affinities: vec![],
         is_friendly: true,
         resolved_archetype: None,
+        archetype_provenance: None,
     }
 }
 
