@@ -209,13 +209,10 @@ fn combatant_is_broken_true_when_edge_drained() {
 // Dev finishes.
 // ────────────────────────────────────────────────────────────────────────────
 
-#[cfg(never_compiles)]
-fn _post_cascade_must_not_compile() {
-    let character = build_production_character();
-    // If any of these compile after 39-2, the cascade is incomplete.
-    let _ = character.core.hp;
-    let _ = character.core.max_hp;
-    let _ = character.core.ac;
-    character.apply_hp_delta(-1);
-    let _ = sidequest_game::hp::clamp_hp(0, 0, 0);
-}
+// Reviewer grep assertion: after 39-2 the following tokens must not
+// appear on `CreatureCore`, `Character`, or `sidequest_game::hp`:
+//   - `.core.hp`, `.core.max_hp`, `.core.ac`
+//   - `Character::apply_hp_delta`
+//   - `sidequest_game::hp` module
+// (Enforced by reviewer grep rather than a compile-fail test, since
+// stable Cargo doesn't ship compile-fail harnesses.)

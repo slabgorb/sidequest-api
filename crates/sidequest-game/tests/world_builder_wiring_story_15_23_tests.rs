@@ -302,8 +302,9 @@ chapters:
     // Character
     assert_eq!(snap.characters.len(), 1);
     assert_eq!(snap.characters[0].core.name.as_str(), "Kael Ashford");
-    assert_eq!(snap.characters[0].core.hp, 30);
-    assert_eq!(snap.characters[0].core.ac, 14);
+    // Story 39-2: chapter hp/max_hp/ac are ignored; placeholder edge pool is
+    // installed by the constructor. Story 39-3 wires per-class YAML seeding.
+    assert!(snap.characters[0].core.edge.base_max > 0);
 
     // NPCs
     assert!(snap.npcs.len() >= 2);

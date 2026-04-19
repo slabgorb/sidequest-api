@@ -150,7 +150,7 @@ fn hp_formula_is_evaluated_not_just_class_base() {
 
     for _ in 0..10 {
         let character = build_character(&rules).expect("build should succeed");
-        hp_values.push(character.core.hp);
+        hp_values.push(character.core.edge.current);
     }
 
     // If hp_formula were evaluated, HP should vary (8 + CON_modifier).
@@ -180,9 +180,9 @@ fn hp_reflects_con_modifier() {
     let expected_hp = 8 + con_modifier;
 
     assert_eq!(
-        character.core.hp, expected_hp,
+        character.core.edge.current, expected_hp,
         "HP should be 8 + CON_modifier. CON={}, modifier={}, expected HP={}, got HP={}",
-        con_value, con_modifier, expected_hp, character.core.hp
+        con_value, con_modifier, expected_hp, character.core.edge.current
     );
 }
 
@@ -193,9 +193,9 @@ fn max_hp_matches_hp() {
     let character = build_character(&rules).expect("build should succeed");
 
     assert_eq!(
-        character.core.hp, character.core.max_hp,
+        character.core.edge.current, character.core.edge.max,
         "At level 1, hp ({}) and max_hp ({}) should be equal",
-        character.core.hp, character.core.max_hp
+        character.core.edge.current, character.core.edge.max
     );
 }
 
@@ -210,9 +210,9 @@ fn no_hp_formula_falls_back_to_class_hp_bases() {
     let character = build_character(&rules).expect("build should succeed");
 
     assert_eq!(
-        character.core.hp, 8,
+        character.core.edge.current, 8,
         "Without hp_formula, HP should fall back to class_hp_bases (Delver=8), got {}",
-        character.core.hp
+        character.core.edge.current
     );
 }
 
@@ -230,9 +230,9 @@ fn hp_minimum_is_one() {
     for _ in 0..20 {
         let character = build_character(&rules).expect("build should succeed");
         assert!(
-            character.core.hp >= 1,
+            character.core.edge.current >= 1,
             "HP should never be less than 1, got {} (CON = {:?})",
-            character.core.hp,
+            character.core.edge.current,
             character.stats.get("CON")
         );
     }
@@ -257,8 +257,8 @@ fn builder_accepts_hp_formula_from_rules_config() {
 
     // HP should be set (non-zero)
     assert!(
-        character.core.hp > 0,
+        character.core.edge.current > 0,
         "Character HP should be positive, got {}",
-        character.core.hp
+        character.core.edge.current
     );
 }

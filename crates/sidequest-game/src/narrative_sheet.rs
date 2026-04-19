@@ -55,12 +55,16 @@ pub struct CharacterStatus {
     pub conditions: Vec<String>,
 }
 
-/// Convert raw HP ratio to a narrative health description.
-fn describe_health(hp: i32, max_hp: i32) -> String {
-    if max_hp <= 0 {
+/// Convert raw edge ratio to a narrative composure description.
+///
+/// Epic 39 content (story 39-6) replaces this HP-flavored vocabulary
+/// with genre-authored composure thresholds; until then the wording is
+/// driven off the same edge/max values the EdgePool exposes.
+fn describe_health(edge: i32, max_edge: i32) -> String {
+    if max_edge <= 0 {
         return "in unknown condition".to_string();
     }
-    let ratio = hp as f64 / max_hp as f64;
+    let ratio = edge as f64 / max_edge as f64;
     if ratio >= 1.0 {
         "in good health".to_string()
     } else if ratio >= 0.75 {
@@ -78,9 +82,9 @@ fn describe_health(hp: i32, max_hp: i32) -> String {
 
 impl CharacterStatus {
     /// Build a narrative status from creature stats.
-    pub(crate) fn from_creature(hp: i32, max_hp: i32, statuses: &[String]) -> Self {
+    pub(crate) fn from_creature(edge: i32, max_edge: i32, statuses: &[String]) -> Self {
         Self {
-            health: describe_health(hp, max_hp),
+            health: describe_health(edge, max_edge),
             conditions: statuses.to_vec(),
         }
     }

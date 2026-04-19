@@ -82,8 +82,8 @@ pub(super) fn emit_telemetry(ctx: &mut DispatchContext<'_>, tctx: &TelemetryCont
         let snapshot = serde_json::json!({
             "turn_number": turn_approx,
             "location": ctx.current_location.as_str(),
-            "hp": *ctx.hp,
-            "max_hp": *ctx.max_hp,
+            "edge": *ctx.edge,
+            "max_edge": *ctx.max_edge,
             "level": *ctx.level,
             "xp": *ctx.xp,
             "inventory": inventory_names,

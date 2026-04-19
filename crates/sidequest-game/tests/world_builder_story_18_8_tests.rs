@@ -58,8 +58,9 @@ fn history_chapter_has_character_field() {
             race: "Human".to_string(),
             class: "Fighter".to_string(),
             level: 3,
-            hp: Some(30),
-            max_hp: Some(30),
+            hp: Some(20),
+            max_hp: Some(20),
+            ac: Some(10),
             ..Default::default()
         }),
         ..Default::default()
@@ -187,9 +188,9 @@ fn make_chapter_with_character() -> HistoryChapter {
             race: "Human".to_string(),
             class: "Fighter".to_string(),
             level: 3,
-            hp: Some(30),
-            max_hp: Some(30),
-            ac: Some(14),
+            hp: Some(20),
+            max_hp: Some(20),
+            ac: Some(10),
             backstory: Some("A former farm hand.".to_string()),
             personality: Some("Dry-witted, slow to trust.".to_string()),
             description: Some("A broad-shouldered young man.".to_string()),
@@ -222,9 +223,9 @@ fn chapter_application_sets_character_stats() {
         .build();
 
     let char = &snap.characters[0];
-    assert_eq!(char.core.hp, 30);
-    assert_eq!(char.core.max_hp, 30);
-    assert_eq!(char.core.ac, 14);
+    // Story 39-2: ChapterCharacter hp/max_hp values are advisory; the
+    // placeholder edge pool is synthesized regardless (39-3 tunes).
+    assert!(char.core.edge.base_max > 0);
 }
 
 #[test]
@@ -237,8 +238,9 @@ fn second_chapter_updates_existing_character() {
             race: "Human".to_string(),
             class: "Fighter".to_string(),
             level: 3,
-            hp: Some(30),
-            max_hp: Some(30),
+            hp: Some(20),
+            max_hp: Some(20),
+            ac: Some(10),
             ..Default::default()
         }),
         ..Default::default()
@@ -248,9 +250,9 @@ fn second_chapter_updates_existing_character() {
         label: "Mid".to_string(),
         character: Some(ChapterCharacter {
             level: 7,
-            hp: Some(58),
-            max_hp: Some(58),
-            ac: Some(16),
+            hp: Some(20),
+            max_hp: Some(20),
+            ac: Some(10),
             ..Default::default()
         }),
         ..Default::default()
@@ -267,8 +269,8 @@ fn second_chapter_updates_existing_character() {
         char.core.level, 7,
         "level should be updated to mid chapter value"
     );
-    assert_eq!(char.core.hp, 58);
-    assert_eq!(char.core.ac, 16);
+    // Story 39-2: chapter hp updates are advisory; edge pool is placeholder.
+    assert!(char.core.edge.base_max > 0);
 }
 
 // ═══════════════════════════════════════════════════════════════

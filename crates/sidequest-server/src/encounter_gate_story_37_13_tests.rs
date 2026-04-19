@@ -130,9 +130,8 @@ fn test_character(name: &str) -> sidequest_game::Character {
             description: NonBlankString::new("Test character for gate tests").unwrap(),
             personality: NonBlankString::new("Brave").unwrap(),
             level: 1,
-            hp: 10,
-            max_hp: 10,
-            ac: 10,
+            edge: sidequest_game::creature_core::placeholder_edge_pool(),
+            acquired_advancements: vec![],
             xp: 0,
             inventory: Inventory {
                 items: vec![],

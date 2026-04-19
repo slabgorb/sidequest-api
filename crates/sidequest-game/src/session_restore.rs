@@ -14,12 +14,10 @@ use sidequest_protocol::NonBlankString;
 pub struct RestoredCharacterState {
     /// Character display name (preserves NonBlankString invariant from CreatureCore).
     pub character_name: NonBlankString,
-    /// Current hit points.
-    pub hp: i32,
-    /// Maximum hit points.
-    pub max_hp: i32,
-    /// Armor class.
-    pub ac: i32,
+    /// Current composure (EdgePool `current`).
+    pub edge: i32,
+    /// Maximum composure (EdgePool `max`).
+    pub max_edge: i32,
     /// Character level.
     pub level: u32,
     /// Experience points.
@@ -54,9 +52,8 @@ pub fn extract_character_state(snapshot: &GameSnapshot) -> Option<RestoredCharac
 
     Some(RestoredCharacterState {
         character_name: character.core.name.clone(),
-        hp: character.core.hp,
-        max_hp: character.core.max_hp,
-        ac: character.core.ac,
+        edge: character.core.edge.current,
+        max_edge: character.core.edge.max,
         level: character.core.level,
         xp: character.core.xp,
         inventory: character.core.inventory.clone(),

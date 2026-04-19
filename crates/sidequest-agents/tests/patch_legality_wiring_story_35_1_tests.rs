@@ -78,19 +78,25 @@ fn mock_state_delta() -> StateDelta {
     .expect("mock StateDelta should deserialize")
 }
 
-fn make_npc(name: &str, hp: i32, max_hp: i32, statuses: Vec<String>) -> Npc {
+fn make_npc(name: &str, edge: i32, max_edge: i32, statuses: Vec<String>) -> Npc {
+    use sidequest_game::creature_core::{EdgePool, RecoveryTrigger};
     Npc {
         core: CreatureCore {
             name: NonBlankString::new(name).unwrap(),
             description: NonBlankString::new("A test NPC").unwrap(),
             personality: NonBlankString::new("Stoic").unwrap(),
             level: 3,
-            hp,
-            max_hp,
-            ac: 12,
             xp: 0,
             inventory: Inventory::default(),
             statuses,
+            edge: EdgePool {
+                current: edge,
+                max: max_edge,
+                base_max: max_edge,
+                recovery_triggers: vec![RecoveryTrigger::OnResolution],
+                thresholds: vec![],
+            },
+            acquired_advancements: vec![],
         },
         voice_id: None,
         disposition: Disposition::new(0),

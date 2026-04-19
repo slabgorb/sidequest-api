@@ -451,12 +451,11 @@ impl WorldBuilder {
                 personality: NonBlankString::new(personality)
                     .unwrap_or_else(|_| NonBlankString::new("Determined.").unwrap()),
                 level: char_data.level,
-                hp: char_data.hp.unwrap_or(20),
-                max_hp: char_data.max_hp.unwrap_or(20),
-                ac: char_data.ac.unwrap_or(10),
                 xp: 0,
                 inventory: Inventory::default(),
                 statuses: Vec::new(),
+                edge: crate::creature_core::placeholder_edge_pool(),
+                acquired_advancements: Vec::new(),
             };
 
             let character = Character {
@@ -489,15 +488,11 @@ impl WorldBuilder {
             if char_data.level > 0 {
                 char.core.level = char_data.level;
             }
-            if let Some(hp) = char_data.hp {
-                char.core.hp = hp;
-            }
-            if let Some(max_hp) = char_data.max_hp {
-                char.core.max_hp = max_hp;
-            }
-            if let Some(ac) = char_data.ac {
-                char.core.ac = ac;
-            }
+            // Epic 39: chapter-data hp/max_hp/ac are legacy carryover. The
+            // placeholder edge pool stays as-is; 39-3 wires per-class edge
+            // seeding from YAML. Ignored here intentionally — not a silent
+            // fallback (the values were always advisory for chapter defaults).
+            let _ = (char_data.hp, char_data.max_hp, char_data.ac);
             if !char_data.name.is_empty() {
                 if let Ok(name) = NonBlankString::new(&char_data.name) {
                     char.core.name = name;
@@ -585,12 +580,11 @@ impl WorldBuilder {
             description,
             personality,
             level: 1,
-            hp: 10,
-            max_hp: 10,
-            ac: 10,
             xp: 0,
             inventory: Inventory::default(),
             statuses: Vec::new(),
+            edge: crate::creature_core::placeholder_edge_pool(),
+            acquired_advancements: Vec::new(),
         };
 
         let npc = Npc {
@@ -665,12 +659,11 @@ impl WorldBuilder {
                 .unwrap(),
                 personality: NonBlankString::new("Neutral.").unwrap(),
                 level: 1,
-                hp: 10,
-                max_hp: 10,
-                ac: 10,
                 xp: 0,
                 inventory: Inventory::default(),
                 statuses: Vec::new(),
+                edge: crate::creature_core::placeholder_edge_pool(),
+                acquired_advancements: Vec::new(),
             };
             let npc = Npc {
                 core,

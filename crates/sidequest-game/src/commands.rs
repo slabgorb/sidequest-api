@@ -26,14 +26,13 @@ impl CommandHandler for StatusCommand {
         };
 
         let mut output = format!(
-            "{} — Level {} {} {}\nHP: {}/{} | AC: {}\nLocation: {} ({})",
+            "{} — Level {} {} {}\nEdge: {}/{}\nLocation: {} ({})",
             ch.core.name,
             ch.core.level,
             ch.race,
             ch.char_class,
-            ch.core.hp,
-            ch.core.max_hp,
-            ch.core.ac,
+            ch.core.edge.current,
+            ch.core.edge.max,
             state.location,
             state.current_region,
         );

@@ -136,9 +136,8 @@ fn test_creature_core() -> sidequest_game::CreatureCore {
         description: NonBlankString::new("A scarred wasteland survivor").unwrap(),
         personality: NonBlankString::new("cautious").unwrap(),
         level: 5,
-        hp: 20,
-        max_hp: 30,
-        ac: 14,
+        edge: sidequest_game::creature_core::placeholder_edge_pool(),
+        acquired_advancements: vec![],
         xp: 0,
         inventory: Inventory::default(),
         statuses: vec![],
@@ -155,7 +154,7 @@ fn creature_hp_delta_emits_span() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.apply_hp_delta(-5);
+        creature.edge.apply_delta(-5);
     });
 
     let spans = captured.lock().unwrap();
@@ -189,7 +188,7 @@ fn creature_hp_delta_includes_name() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.apply_hp_delta(-5);
+        creature.edge.apply_delta(-5);
     });
 
     let spans = captured.lock().unwrap();
@@ -212,7 +211,7 @@ fn creature_hp_delta_reports_correct_values() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.apply_hp_delta(-5);
+        creature.edge.apply_delta(-5);
     });
 
     let spans = captured.lock().unwrap();
@@ -241,7 +240,7 @@ fn creature_hp_delta_reports_clamped_on_overkill() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.apply_hp_delta(-100);
+        creature.edge.apply_delta(-100);
     });
 
     let spans = captured.lock().unwrap();
@@ -273,7 +272,7 @@ fn creature_hp_delta_reports_clamped_on_overheal() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.apply_hp_delta(100);
+        creature.edge.apply_delta(100);
     });
 
     let spans = captured.lock().unwrap();
@@ -301,7 +300,7 @@ fn creature_hp_delta_reports_unclamped_on_normal_damage() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.apply_hp_delta(-5);
+        creature.edge.apply_delta(-5);
     });
 
     let spans = captured.lock().unwrap();

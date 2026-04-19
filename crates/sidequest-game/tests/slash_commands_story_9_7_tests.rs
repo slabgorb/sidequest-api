@@ -144,9 +144,8 @@ fn test_character() -> Character {
             description: NonBlankString::new("A scarred wanderer").unwrap(),
             personality: NonBlankString::new("Cautious but curious").unwrap(),
             level: 2,
-            hp: 18,
-            max_hp: 20,
-            ac: 13,
+            edge: sidequest_game::creature_core::placeholder_edge_pool(),
+            acquired_advancements: vec![],
             xp: 0,
             inventory,
             statuses: vec![],
@@ -264,7 +263,7 @@ fn status_with_zero_hp_still_displays() {
     let mut router = SlashRouter::new();
     router.register(Box::new(StatusCommand));
     let mut state = test_snapshot();
-    state.characters[0].core.hp = 0;
+    state.characters[0].core.edge.current = 0;
 
     match router.try_dispatch("/status", &state).unwrap() {
         CommandResult::Display(text) => {

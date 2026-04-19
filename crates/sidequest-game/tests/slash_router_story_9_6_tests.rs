@@ -64,9 +64,8 @@ fn test_character() -> Character {
             description: NonBlankString::new("A scarred wanderer").unwrap(),
             personality: NonBlankString::new("Cautious but curious").unwrap(),
             level: 2,
-            hp: 18,
-            max_hp: 20,
-            ac: 13,
+            edge: sidequest_game::creature_core::placeholder_edge_pool(),
+            acquired_advancements: vec![],
             xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
@@ -120,7 +119,7 @@ impl CommandHandler for StatusCommand {
         if let Some(ch) = state.characters.first() {
             CommandResult::Display(format!(
                 "{}: HP {}/{}",
-                ch.core.name, ch.core.hp, ch.core.max_hp
+                ch.core.name, ch.core.edge.current, ch.core.edge.max
             ))
         } else {
             CommandResult::Error("No characters found".to_string())

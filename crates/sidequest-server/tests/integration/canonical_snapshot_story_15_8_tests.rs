@@ -68,9 +68,8 @@ fn dispatch_snapshot() -> GameSnapshot {
                 description: NonBlankString::new("A scarred warrior").unwrap(),
                 personality: NonBlankString::new("Gruff").unwrap(),
                 level: 3,
-                hp: 18,
-                max_hp: 25,
-                ac: 12,
+                edge: sidequest_game::creature_core::placeholder_edge_pool(),
+                acquired_advancements: vec![],
                 xp: 450,
                 inventory: {
                     let mut inv = Inventory::default();
@@ -365,7 +364,7 @@ fn snapshot_patch_in_place_preserves_fields_across_turns() {
 
     // Turn 2: HP changes, inventory updated, NPC registered
     if let Some(ch) = snapshot.characters.first_mut() {
-        ch.core.hp = 12;
+        ch.core.edge.current = 12;
         ch.core
             .inventory
             .add(test_item("arena_token", "Arena Token"), 20)
@@ -385,7 +384,7 @@ fn snapshot_patch_in_place_preserves_fields_across_turns() {
 
     // Verify ALL mutations survived patch-in-place
     assert_eq!(snapshot.location, "Arena of the Damned");
-    assert!(snapshot.characters.first().unwrap().core.hp == 12);
+    assert!(snapshot.characters.first().unwrap().core.edge.current == 12);
     assert_eq!(
         snapshot
             .characters
@@ -449,8 +448,8 @@ fn save_without_prior_load_then_load_recovers_all_fields() {
         .characters
         .first()
         .expect("character must survive save/load");
-    assert_eq!(ch.core.hp, 18);
-    assert_eq!(ch.core.max_hp, 25);
+    assert_eq!(ch.core.edge.current, 18);
+    assert_eq!(ch.core.edge.max, 25);
     assert_eq!(ch.core.level, 3);
     assert_eq!(ch.core.xp, 450);
     assert_eq!(ch.core.inventory.items.len(), 2);
@@ -494,7 +493,7 @@ fn multi_turn_patch_then_save_preserves_mutations() {
     snapshot.location = "Scorched Outpost".to_string();
     snapshot.turn_manager.advance();
     if let Some(ch) = snapshot.characters.first_mut() {
-        ch.core.hp = 5;
+        ch.core.edge.current = 5;
         ch.core.level = 4;
     }
     snapshot.narrative_log.push(NarrativeEntry {
@@ -514,7 +513,7 @@ fn multi_turn_patch_then_save_preserves_mutations() {
     // Load and verify mutations persisted
     let loaded = store.load().unwrap().unwrap();
     assert_eq!(loaded.snapshot.location, "Scorched Outpost");
-    assert_eq!(loaded.snapshot.characters.first().unwrap().core.hp, 5);
+    assert_eq!(loaded.snapshot.characters.first().unwrap().core.edge.current, 5);
     assert_eq!(loaded.snapshot.characters.first().unwrap().core.level, 4);
     assert_eq!(loaded.snapshot.narrative_log.len(), 2);
 }
