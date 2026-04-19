@@ -233,13 +233,14 @@ fn harvest_progression_mechanical_effects(
             // Run the harvested tier through the same validated-constructor
             // path as YAML-authored tiers so invariants (non-blank id / milestone)
             // are enforced uniformly.
-            let built = AdvancementTier::try_from(raw).map_err(|e| GenreError::ValidationError {
-                message: format!(
-                    "harvested progression tier from {}: {}",
-                    progression_path.display(),
-                    e
-                ),
-            })?;
+            let built =
+                AdvancementTier::try_from(raw).map_err(|e| GenreError::ValidationError {
+                    message: format!(
+                        "harvested progression tier from {}: {}",
+                        progression_path.display(),
+                        e
+                    ),
+                })?;
             tiers.push(built);
         }
     }

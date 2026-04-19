@@ -427,10 +427,8 @@ fn generate_npc(
     // world tier, or both. Prefer world-tier if present (override semantics,
     // per World.archetypes docstring and the interim empty-genre-yaml pattern
     // in heavy_metal), else fall back to genre-tier.
-    let world_opt: Option<&sidequest_genre::World> = cli
-        .world
-        .as_deref()
-        .and_then(|slug| pack.worlds.get(slug));
+    let world_opt: Option<&sidequest_genre::World> =
+        cli.world.as_deref().and_then(|slug| pack.worlds.get(slug));
     let (effective_cultures, cultures_source): (Vec<&sidequest_genre::Culture>, &'static str) =
         match world_opt {
             Some(w) if !w.cultures.is_empty() => (w.cultures.iter().collect(), "world"),

@@ -430,7 +430,9 @@ fn resolved_beat_for_with_unknown_tier_id_panics_loudly() {
     // contain. This is a content/save bug — silently ignoring it would
     // mask the problem. CLAUDE.md: no silent fallbacks.
     let mut hero = hero(10);
-    hero.core.acquired_advancements.push("tier_that_does_not_exist".to_string());
+    hero.core
+        .acquired_advancements
+        .push("tier_that_does_not_exist".to_string());
     let tree = AdvancementTree { tiers: vec![] };
     let beat = beat_yaml("strike", Some(1), None);
 
@@ -570,7 +572,9 @@ fn grant_advancement_tier_pushes_id_to_acquired_advancements() {
     grant_advancement_tier(&mut hero, "iron_1", &tree).expect("grant must succeed for known tier");
 
     assert!(
-        hero.core.acquired_advancements.contains(&"iron_1".to_string()),
+        hero.core
+            .acquired_advancements
+            .contains(&"iron_1".to_string()),
         "grant must push tier id into acquired_advancements; got {:?}",
         hero.core.acquired_advancements
     );

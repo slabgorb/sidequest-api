@@ -221,13 +221,11 @@ pub fn grant_advancement_tier(
     tier_id: &str,
     tree: &AdvancementTree,
 ) -> Result<AdvancementGrantOutcome, AdvancementGrantError> {
-    let tier: &AdvancementTier = tree
-        .tiers
-        .iter()
-        .find(|t| t.id == tier_id)
-        .ok_or_else(|| AdvancementGrantError::UnknownTierId {
+    let tier: &AdvancementTier = tree.tiers.iter().find(|t| t.id == tier_id).ok_or_else(|| {
+        AdvancementGrantError::UnknownTierId {
             tier_id: tier_id.to_string(),
-        })?;
+        }
+    })?;
 
     let mut edge_max_delta = 0i32;
     let mut applied_effects: Vec<AdvancementEffect> = Vec::new();

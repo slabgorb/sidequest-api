@@ -60,10 +60,7 @@ use sidequest_genre::{
 fn heavy_metal_progression_path() -> Option<PathBuf> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for ancestor in manifest_dir.ancestors() {
-        for candidate in [
-            "sidequest-content-39-5",
-            "sidequest-content",
-        ] {
+        for candidate in ["sidequest-content-39-5", "sidequest-content"] {
             let path = ancestor
                 .join(candidate)
                 .join("genre_packs")
@@ -288,7 +285,10 @@ fn advancement_tree_deserializes_with_tiers() {
     assert_eq!(iron.class_gates, vec!["Fighter".to_string()]);
     assert_eq!(iron.effects.len(), 1);
     assert!(
-        matches!(iron.effects[0], AdvancementEffect::EdgeMaxBonus { amount: 2 }),
+        matches!(
+            iron.effects[0],
+            AdvancementEffect::EdgeMaxBonus { amount: 2 }
+        ),
         "iron_1 effect must be EdgeMaxBonus(2)"
     );
 
@@ -389,11 +389,7 @@ fn live_heavy_metal_progression_yaml_has_mechanical_effects() {
                 .into_iter()
                 .filter_map(|t| t.as_ref())
         })
-        .filter(|t| {
-            t.mechanical_effects
-                .as_ref()
-                .is_some_and(|v| !v.is_empty())
-        })
+        .filter(|t| t.mechanical_effects.as_ref().is_some_and(|v| !v.is_empty()))
         .count();
 
     assert!(
@@ -455,7 +451,10 @@ fn loader_fails_loudly_when_both_hosts_present() {
         msg
     );
     assert!(
-        matches!(err, GenreError::ValidationError { .. } | GenreError::LoadError { .. }),
+        matches!(
+            err,
+            GenreError::ValidationError { .. } | GenreError::LoadError { .. }
+        ),
         "error variant should be a loader-level validation, not a generic IO error: {:?}",
         err
     );
