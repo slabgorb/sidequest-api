@@ -1,0 +1,10 @@
+# Fixture for Story 39-5 — ERROR case: this sibling file coexists with
+# a progression.yaml that also carries mechanical_effects. The loader must
+# return an error naming BOTH files when it encounters this state.
+tiers:
+  - id: conflict_tier_1
+    required_milestone: combat_track
+    class_gates: []
+    effects:
+      - type: edge_max_bonus
+        amount: 2

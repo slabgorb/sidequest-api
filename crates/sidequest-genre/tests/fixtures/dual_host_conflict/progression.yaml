@@ -1,0 +1,20 @@
+# Fixture for Story 39-5 — ERROR case: BOTH hosts carry advancement effects.
+# This fixture represents a misconfigured genre pack. The loader MUST fail
+# loudly rather than pick one host silently.
+max_level: 5
+milestones_per_level: 3
+milestone_categories:
+  - combat
+affinities:
+  - name: Iron
+    description: "Durability affinity — uses inline mechanical_effects."
+    triggers: ["take a hit"]
+    tier_thresholds: [1, 3, 6]
+    unlocks:
+      tier_1:
+        name: "Iron Tier 1"
+        description: "Stays on feet."
+        abilities: []
+        mechanical_effects:
+          - type: edge_max_bonus
+            amount: 2

@@ -18,6 +18,7 @@ mod dice_physics_is_the_roll_story_34_12_tests;
 mod dice_request_lifecycle_story_37_20_tests;
 mod dice_resolver_wiring_34_3;
 mod dispatch_context_structs_story_36_2_tests;
+mod advancement_resolved_beat_wiring_story_39_5_tests;
 mod edge_delta_dispatch_wiring_story_39_4_tests;
 mod embed_endpoint_story_37_5_tests;
 mod encounter_context_wiring_story_28_4_tests;

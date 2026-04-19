@@ -1,0 +1,16 @@
+# Fixture for Story 39-5 — STANDALONE host for a genre without affinity-tier
+# mechanical_effects. The loader must read this file when progression.yaml
+# carries no effects.
+tiers:
+  - id: standalone_tier_1
+    required_milestone: combat_track
+    class_gates: []
+    effects:
+      - type: edge_max_bonus
+        amount: 2
+  - id: standalone_tier_2
+    required_milestone: social_track
+    class_gates: []
+    effects:
+      - type: lore_reveal_bonus
+        scope: threshold_crossings
