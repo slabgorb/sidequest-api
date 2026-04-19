@@ -118,4 +118,102 @@ mod tests {
             .expect_err("source does not exist");
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
     }
+
+    // -----------------------------------------------------------------
+    // Rework RED (round-trip 1, Reviewer finding): path-traversal guards.
+    //
+    // `genre`, `world`, `player` are path components that flow from
+    // session context (player_name_for_save, genre_slug, world_slug).
+    // Although these are internally generated in current code, they key
+    // the save DB subtree and must be hardened against `..`, embedded
+    // separators, and empty values — treating persisted/composable path
+    // inputs as untrusted is the correct default.
+    //
+    // The fix should reject any segment equal to ".." or ".", containing
+    // "/" or "\\", or empty. Canonicalization after construction followed
+    // by `dest.starts_with(save_dir.join("scrapbook"))` is also an
+    // acceptable implementation — the tests below only assert that the
+    // *behavior* rejects the malicious inputs, not how.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn persist_rejects_parent_dir_in_player_segment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("render_a.png");
+        fs::write(&src, b"X").unwrap();
+        let err = persist_scrapbook_image(tmp.path(), "g", "w", "..", &src).expect_err(
+            "player segment equal to `..` MUST be rejected — otherwise the \
+             destination escapes save_dir/scrapbook/g/w/",
+        );
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::InvalidInput,
+            "rejection should surface as InvalidInput (bad argument), not NotFound or Other"
+        );
+    }
+
+    #[test]
+    fn persist_rejects_parent_dir_in_genre_segment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("render_b.png");
+        fs::write(&src, b"X").unwrap();
+        let err = persist_scrapbook_image(tmp.path(), "..", "w", "p", &src)
+            .expect_err("genre segment `..` MUST be rejected");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn persist_rejects_embedded_separator_in_world_segment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("render_c.png");
+        fs::write(&src, b"X").unwrap();
+        // A world slug containing '/' would silently create an extra nested
+        // directory — not catastrophic like `..`, but still a silent data
+        // layout violation that makes the save tree unpredictable.
+        let err = persist_scrapbook_image(tmp.path(), "g", "a/b", "p", &src).expect_err(
+            "world segment containing `/` MUST be rejected — it silently creates \
+             nested directories that violate the documented tree layout",
+        );
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn persist_rejects_empty_segments() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("render_d.png");
+        fs::write(&src, b"X").unwrap();
+        let err = persist_scrapbook_image(tmp.path(), "", "w", "p", &src).expect_err(
+            "empty genre segment MUST be rejected — silently writing to \
+             save_dir/scrapbook//w/p/... yields a broken path shape",
+        );
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn persist_rejects_single_dot_segments() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("render_e.png");
+        fs::write(&src, b"X").unwrap();
+        // `.` is harmless in most path resolvers but is a canonical-form
+        // violation: `save_dir/scrapbook/./w/p/foo.png` renders identical to
+        // `save_dir/scrapbook/w/p/foo.png` after canonicalization. Reject to
+        // keep the on-disk layout stable and predictable.
+        let err = persist_scrapbook_image(tmp.path(), ".", "w", "p", &src)
+            .expect_err("`.` segment MUST be rejected to keep the save layout canonical");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn persist_accepts_normal_slug_shaped_segments() {
+        // Regression guard: the traversal rejections above must not reject
+        // anything legitimate. `low_fantasy`, `ironhold`, `Rux` — ASCII
+        // letters, digits, underscore, hyphen, and mixed case should all
+        // pass through unchanged.
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("render_f.png");
+        fs::write(&src, b"OK").unwrap();
+        let dest = persist_scrapbook_image(tmp.path(), "low_fantasy_1", "iron-hold", "Rux", &src)
+            .expect("normal slug-shaped segments must be accepted");
+        assert!(dest.exists());
+    }
 }

@@ -138,16 +138,27 @@ fn game_crate_exports_persist_scrapbook_image() {
 
 #[test]
 fn response_rs_calls_persist_scrapbook_image_before_db_insert() {
+    // Rework RED (Reviewer finding, round-trip 1): the previous form of this
+    // test searched for the literal `persist_scrapbook_image` and was gamed by
+    // having that identifier appear in a doc comment above the call site (the
+    // actual production call is wrapped in a helper named
+    // `rewrite_scrapbook_image_url`). Anchor on the **call expression** of the
+    // wrapper instead — that is what the capture path invokes. A helper's
+    // definition block can still contain `persist_scrapbook_image` as an
+    // identifier, but no call expression `rewrite_scrapbook_image_url(` can
+    // exist anywhere except at the production call site in build_response_messages.
     let source = read_source("src/dispatch/response.rs");
-    let persist_idx = source.find("persist_scrapbook_image").unwrap_or_else(|| {
-        panic!(
-            "dispatch/response.rs must call `persist_scrapbook_image(...)` to copy the \
-             rendered file into the save-scoped scrapbook subtree BEFORE the DB INSERT. \
-             Without this call, `image_url` stays in the global `/api/renders/` pool and \
-             the row survives resume but the bytes do not."
-        )
-    });
-    let append_idx = source.find("append_scrapbook_entry").unwrap_or_else(|| {
+    let call_idx = source
+        .find("rewrite_scrapbook_image_url(")
+        .unwrap_or_else(|| {
+            panic!(
+                "dispatch/response.rs must call `rewrite_scrapbook_image_url(...)` (the \
+             wrapper that invokes `sidequest_game::persist_scrapbook_image`) BEFORE the \
+             DB INSERT. Without this call, `image_url` stays in the volatile \
+             `/api/renders/` pool and the row survives resume but the bytes do not."
+            )
+        });
+    let append_idx = source.find("append_scrapbook_entry(").unwrap_or_else(|| {
         panic!(
             "dispatch/response.rs must call `persistence().append_scrapbook_entry(...)` \
              to write the row. This is an existing call — if it has been removed, the \
@@ -155,13 +166,208 @@ fn response_rs_calls_persist_scrapbook_image_before_db_insert() {
         )
     });
     assert!(
-        persist_idx < append_idx,
-        "`persist_scrapbook_image` call (offset {}) must appear BEFORE \
-         `append_scrapbook_entry` (offset {}) so the `image_url` stored in SQLite is \
+        call_idx < append_idx,
+        "`rewrite_scrapbook_image_url(` call (offset {}) must appear BEFORE \
+         `append_scrapbook_entry(` (offset {}) so the `image_url` stored in SQLite is \
          the save-scoped `/api/scrapbook/...` form, not the volatile `/api/renders/...` \
          form. Otherwise resume loads a DB pointer into a pool that can vanish.",
-        persist_idx,
+        call_idx,
         append_idx
+    );
+    // Secondary guard: the wrapper's body must still delegate to the game
+    // crate's seam. If the wrapper is a no-op stub, the behavior regresses
+    // even though the ordering above passes.
+    assert!(
+        source.contains("sidequest_game::persist_scrapbook_image(")
+            || source.contains("persist_scrapbook_image("),
+        "dispatch/response.rs must still contain a call to \
+         `sidequest_game::persist_scrapbook_image(...)` — otherwise the wrapper is a \
+         stub and no file copy happens. (This test is resilient to both fully \
+         qualified and imported forms of the path.)"
+    );
+}
+
+// ===========================================================================
+// Rework RED (round-trip 1) — blocking findings from Colonel Potter
+// ===========================================================================
+//
+// These tests encode the five blocking findings from the first review pass:
+//   1. Path-traversal guards missing at three sites (persist seam, resolve,
+//      rewrite filename extraction).
+//   2. HOME-unset silent /tmp fallback in the resolve helper.
+//   3. HOME-unset silent /tmp fallback in the rewrite helper.
+//   4. Empty genre/world slug short-circuit keeps the original URL with no OTEL.
+//   5. `NonBlankString::new` failure on the rewritten URL emits no WatcherEvent.
+//
+// Most are source-read wiring checks (the helpers are private to dispatch
+// modules and cannot be called directly from an integration test). The
+// behavioral tests for path traversal on the public `persist_scrapbook_image`
+// seam live in `sidequest-game/src/scrapbook_store.rs::tests`.
+
+// ---------------------------------------------------------------------------
+// Finding 2+3 — HOME-unset silent /tmp fallback. Both helpers must fail loud.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn response_rs_rewrite_does_not_silently_fallback_to_tmp_when_home_unset() {
+    // The prior implementation did
+    //   std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+    // which silently guesses /tmp on misconfigured environments. Per
+    // CLAUDE.md "No Silent Fallbacks" the helper MUST propagate an error (or
+    // skip the copy with a loud OTEL event) when HOME is unset AND
+    // SIDEQUEST_OUTPUT_DIR is unset. The banned pattern is the `/tmp` literal
+    // used as an env-var fallback.
+    let source = read_source("src/dispatch/response.rs");
+    assert!(
+        !source.contains("unwrap_or_else(|_| \"/tmp\".to_string())"),
+        "dispatch/response.rs must not silently fall back to `/tmp` when HOME is \
+         unset. Replace with an explicit `io::Error` (renders dir unknown) so the \
+         caller emits the `scrapbook.image_persist_failed` ValidationWarning already \
+         wired up for the failure path. CLAUDE.md rule: No Silent Fallbacks."
+    );
+}
+
+#[test]
+fn connect_rs_resolve_does_not_silently_fallback_to_tmp_when_home_unset() {
+    // Same rule, same banned pattern, resume side. When HOME is unset the
+    // resolve helper should return None (which the caller already handles by
+    // emitting `scrapbook.image_url_unresolvable`) — NOT silently guess /tmp.
+    let source = read_source("src/dispatch/connect.rs");
+    assert!(
+        !source.contains("unwrap_or_else(|_| \"/tmp\".to_string())"),
+        "dispatch/connect.rs must not silently fall back to `/tmp` when HOME is \
+         unset. Return `None` from `resolve_scrapbook_image_path` instead so the \
+         caller emits the loud `scrapbook.image_url_unresolvable` event. CLAUDE.md \
+         rule: No Silent Fallbacks."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Finding 4 — empty-slug short-circuit must emit OTEL, not silently default.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn response_rs_empty_slug_shortcircuit_emits_otel() {
+    // Today: `if ctx.genre_slug.is_empty() || ctx.world_slug.is_empty() {
+    //            Some(original_url)
+    //        }`
+    // keeps the volatile /api/renders/ URL with zero OTEL signal. A missing
+    // slug is a configuration error, not a graceful degradation. The fix must
+    // emit a ValidationWarning with a recognizable event name so the GM panel
+    // sees the miss.
+    let source = read_source("src/dispatch/response.rs");
+    assert!(
+        source.contains("scrapbook.image_persist_skipped_missing_slugs"),
+        "dispatch/response.rs must emit a `WatcherEvent` with \
+         `event = \"scrapbook.image_persist_skipped_missing_slugs\"` whenever the \
+         capture path short-circuits on an empty genre_slug or world_slug. Today the \
+         short-circuit silently keeps the /api/renders/ URL. CLAUDE.md rule: No \
+         Silent Fallbacks."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Finding 5 — image_rewrite_url_blank must emit WatcherEvent, not just log.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn response_rs_rewrite_url_blank_emits_watcher_event() {
+    // The `NonBlankString::new(&rewritten)` failure arm on the rewritten URL
+    // currently only does `tracing::error!` — the GM panel cannot see it. The
+    // three sibling error paths in the same block all emit
+    // `WatcherEventType::ValidationWarning`. This one must too, with a
+    // recognizable event name.
+    //
+    // NB: a bare `source.contains("scrapbook.image_rewrite_url_blank")` would
+    // pass on the existing `tracing::error!` log line (which already contains
+    // that phrase). The test must verify the event name appears **inside a
+    // WatcherEventBuilder call chain** — otherwise the fix is merely cosmetic.
+    //
+    // The tightest check that does not require parsing Rust syntax: find the
+    // literal event-name string, then walk backwards to the nearest
+    // `WatcherEventBuilder::new(` and verify that token appears within a
+    // reasonable window (a ValidationWarning field-chain is typically a
+    // few hundred bytes of fluent-builder calls). Crucially, also require
+    // `ValidationWarning` in that same window to distinguish the watcher
+    // emission from a stray tracing line.
+    let source = read_source("src/dispatch/response.rs");
+    let event_idx = source.find("\"scrapbook.image_rewrite_url_blank\"").expect(
+        "response.rs must contain the literal \
+             `\"scrapbook.image_rewrite_url_blank\"` as a field value",
+    );
+    // Window back up to 1024 bytes to find a nearby WatcherEventBuilder chain.
+    let window_start = event_idx.saturating_sub(1024);
+    let preceding = &source[window_start..event_idx];
+    assert!(
+        preceding.contains("WatcherEventBuilder::new") && preceding.contains("ValidationWarning"),
+        "the `scrapbook.image_rewrite_url_blank` event name must appear inside a \
+         `WatcherEventBuilder::new(..., WatcherEventType::ValidationWarning)` call \
+         chain. Today the string only appears in a `tracing::error!` macro — the \
+         GM panel cannot see it. Add a sibling ValidationWarning emission mirroring \
+         the `scrapbook.image_persist_failed` pattern in the Err(e) arm below."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Finding 1 — path traversal guards at three sites.
+//
+// Behavioral rejection tests for the public `persist_scrapbook_image` seam
+// live in `crates/sidequest-game/src/scrapbook_store.rs::tests` (that fn is
+// directly callable from a unit test). The two wiring tests below cover the
+// private dispatch helpers by asserting the guard tokens appear in their
+// source — the tightest check available without making the helpers `pub`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn connect_rs_resolve_rejects_parent_dir_segments() {
+    // `resolve_scrapbook_image_path` splits a URL path on '/' and pushes
+    // each segment into a PathBuf. Without a `..` check a malicious or
+    // corrupted row with `image_url = "/api/scrapbook/../../.ssh/id_rsa"`
+    // escapes the save subtree.
+    let source = read_source("src/dispatch/connect.rs");
+    // Narrow the search to the resolve helper's body. The function is at
+    // the end of the file; grab everything after its `fn` declaration and
+    // look for a `..` guard inside.
+    let start = source
+        .find("fn resolve_scrapbook_image_path")
+        .expect("dispatch/connect.rs must define fn resolve_scrapbook_image_path");
+    let body = &source[start..];
+    let has_parent_dir_guard = body.contains("\"..\"") || body.contains(r#"".." "#);
+    assert!(
+        has_parent_dir_guard,
+        "`resolve_scrapbook_image_path` in dispatch/connect.rs must reject URL \
+         segments equal to `\"..\"`. Without this, a stored image_url of \
+         `/api/scrapbook/../../etc/passwd` traverses out of save_dir. Add a check \
+         alongside the existing empty-segment guard."
+    );
+}
+
+#[test]
+fn response_rs_rewrite_rejects_path_traversal_in_filename() {
+    // `rewrite_scrapbook_image_url` takes the filename suffix of
+    // /api/renders/{filename} and joins it directly under SIDEQUEST_OUTPUT_DIR
+    // and later under the save-scoped tree. A filename containing `/` or `..`
+    // escapes either directory.
+    let source = read_source("src/dispatch/response.rs");
+    let start = source
+        .find("fn rewrite_scrapbook_image_url")
+        .expect("dispatch/response.rs must define fn rewrite_scrapbook_image_url");
+    let body = &source[start..];
+    // Accept any reasonable sanitization: explicit check for '/' or '\\' in
+    // the filename, or a `..` rejection, or use of std::path::Path::file_name
+    // which naturally strips separators and returns None on `..`.
+    let has_sanitizer = body.contains("contains('/')")
+        || body.contains("contains(\"..\")")
+        || body.contains("contains('\\\\')")
+        || body.contains(".file_name()");
+    assert!(
+        has_sanitizer,
+        "`rewrite_scrapbook_image_url` in dispatch/response.rs must reject or \
+         sanitize filenames that contain `/`, `\\`, or `..`. A daemon-produced \
+         path like `../../.ssh/id_rsa` would currently be joined directly into \
+         the renders directory and then copied into the save tree. Accept any of: \
+         `contains('/')` check, `contains(\"..\")` check, or `Path::file_name()` \
+         extraction (which strips separators and rejects `..`)."
     );
 }
 
