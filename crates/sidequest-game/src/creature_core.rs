@@ -121,7 +121,12 @@ impl ThresholdAt for EdgeThreshold {
 ///
 /// Authored in genre YAML (39-6) and resolved during beat dispatch
 /// (39-4). Story 39-1 only introduces the shape; no engine wiring yet.
+///
+/// Marked `#[non_exhaustive]` because genre authors are expected to
+/// add further recovery variants in later stories — keeps external
+/// `match` arms honest about the open set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum RecoveryTrigger {
     /// Restore edge when the encounter resolves (win or escape).
     OnResolution,

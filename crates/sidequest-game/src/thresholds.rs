@@ -62,17 +62,32 @@ where
 /// - source: `GameEvent`
 /// - turn_created: the supplied turn number
 ///
-/// Duplicate ids are silently skipped (LoreStore rejects them).
+/// Duplicate ids are the idempotency path (same threshold crossing
+/// minted twice across reloads) — LoreStore rejects the insert and
+/// we log a `tracing::warn!` so the GM panel can still surface a
+/// misconfigured genre pack where two distinct thresholds share an
+/// event_id. No error is returned because a duplicate is almost
+/// always the idempotency case; the warning is the signal.
 pub fn mint_threshold_lore<T: ThresholdAt>(thresholds: &[T], store: &mut LoreStore, turn: u64) {
     for threshold in thresholds {
+        let event_id = threshold.event_id().to_string();
         let fragment = LoreFragment::new(
-            threshold.event_id().to_string(),
+            event_id.clone(),
             LoreCategory::Event,
             threshold.narrator_hint().to_string(),
             LoreSource::GameEvent,
             Some(turn),
             HashMap::new(),
         );
-        let _ = store.add(fragment);
+        if let Err(err) = store.add(fragment) {
+            tracing::warn!(
+                event_id = %event_id,
+                turn = turn,
+                error = %err,
+                "threshold lore minting rejected by LoreStore \
+                 — usually idempotent re-mint; investigate if two \
+                 thresholds share this event_id",
+            );
+        }
     }
 }

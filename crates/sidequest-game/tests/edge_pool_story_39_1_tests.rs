@@ -311,9 +311,11 @@ fn resource_pool_decay_path_still_works_after_extraction() {
 
 #[test]
 fn thresholds_module_is_publicly_accessible() {
-    // Forces `sidequest_game::thresholds` to resolve. If the module is
-    // missing, the build fails — this guards `pub mod thresholds;` in lib.rs.
-    // The reference is a no-op but must compile.
-    #[allow(unused_imports)]
-    use sidequest_game::thresholds as _th;
+    // Forces `sidequest_game::thresholds` to resolve AND exercises the
+    // public generic API surface. If either the module or the
+    // detect_crossings function is removed or made private, this breaks.
+    use sidequest_game::thresholds::detect_crossings;
+    let ts = vec![strained_at(1), break_at(0)];
+    let crossed: Vec<EdgeThreshold> = detect_crossings(&ts, 2, 0);
+    assert_eq!(crossed.len(), 2);
 }
