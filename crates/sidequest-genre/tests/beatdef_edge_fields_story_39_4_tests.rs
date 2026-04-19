@@ -1,8 +1,7 @@
 //! Story 39-4 — BeatDef schema extension: edge_delta, target_edge_delta, resource_deltas.
 //!
-//! RED: these fields do not yet exist on `BeatDef`. These tests pin the
-//! wire contract for the new optional fields and guard against future
-//! serde drift.
+//! These tests pin the wire contract for the three optional BeatDef
+//! fields added by story 39-4 and guard against future serde drift.
 //!
 //! ACs covered:
 //!   AC1  — `BeatDef` exposes three optional fields, each `#[serde(default)]`
@@ -130,4 +129,3 @@ resource_deltas:
     assert_eq!(deltas.get("grit"), Some(&2.0));
     assert_eq!(deltas.get("covenant"), Some(&-3.0));
 }
-

@@ -7,7 +7,6 @@ mod test_helpers;
 
 mod beat_dispatch_wiring_story_28_5_tests;
 mod beat_dispatch_wiring_story_37_14_tests;
-mod edge_delta_dispatch_wiring_story_39_4_tests;
 mod canonical_snapshot_story_15_8_tests;
 mod chargen_back_action_wiring_story_37_7_tests;
 mod confrontation_beats_wiring_story_28_3_tests;
@@ -19,6 +18,7 @@ mod dice_physics_is_the_roll_story_34_12_tests;
 mod dice_request_lifecycle_story_37_20_tests;
 mod dice_resolver_wiring_34_3;
 mod dispatch_context_structs_story_36_2_tests;
+mod edge_delta_dispatch_wiring_story_39_4_tests;
 mod embed_endpoint_story_37_5_tests;
 mod encounter_context_wiring_story_28_4_tests;
 mod entity_reference_wiring_story_35_2_tests;

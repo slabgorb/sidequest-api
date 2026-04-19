@@ -72,7 +72,10 @@ display_fields: [edge, max_edge, composure_state]
         Some(CrossingDirection::CrossingDown)
     );
     assert_eq!(cfg.thresholds[1].at, 0);
-    assert_eq!(cfg.display_fields, vec!["edge", "max_edge", "composure_state"]);
+    assert_eq!(
+        cfg.display_fields,
+        vec!["edge", "max_edge", "composure_state"]
+    );
 }
 
 #[test]
@@ -107,10 +110,10 @@ fn heavy_metal_rules_yaml_migrated_to_edge_config() {
              content — they only validate the types."
         )
     });
-    let raw = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    let rules: RulesConfig = serde_yaml::from_str(&raw)
-        .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+    let raw =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let rules: RulesConfig =
+        serde_yaml::from_str(&raw).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
 
     // HP scaffolding is gone from heavy_metal.
     assert!(
@@ -149,5 +152,8 @@ fn heavy_metal_rules_yaml_migrated_to_edge_config() {
     let event_ids: Vec<&str> = cfg.thresholds.iter().map(|t| t.event_id.as_str()).collect();
     assert!(event_ids.contains(&"edge_strained"));
     assert!(event_ids.contains(&"composure_break"));
-    assert_eq!(cfg.display_fields, vec!["edge", "max_edge", "composure_state"]);
+    assert_eq!(
+        cfg.display_fields,
+        vec!["edge", "max_edge", "composure_state"]
+    );
 }

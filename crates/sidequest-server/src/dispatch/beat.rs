@@ -49,6 +49,12 @@ use super::DispatchContext;
 /// deltas carried on a `BeatDef`. Returned by `apply_beat_edge_deltas`
 /// so `handle_applied_side_effects` (and integration tests) can observe
 /// whether the beat resolved the encounter via composure break.
+///
+/// `#[non_exhaustive]` matches the `BeatDispatchOutcome` convention —
+/// 39-5/39-6 are expected to grow additional fields (advancement
+/// triggers, resource break flags) and downstream consumers should
+/// destructure with a wildcard so the additions stay non-breaking.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EdgeDeltaOutcome {
     /// Acting character's new edge.current after `beat.edge_delta` was
@@ -73,10 +79,20 @@ pub struct EdgeDeltaOutcome {
 /// in `resource_deltas`. Sets `snapshot.encounter.resolved = true` on
 /// composure break.
 ///
-/// **No silent fallbacks:** if `target_edge_delta` is set but the
-/// encounter has no actor with `role == "opponent"`, this function
-/// panics. A silent skip would mask a configuration bug — the narrator
-/// emitted a target-debit beat into an encounter that has no target.
+/// **No silent fallbacks (edge paths):** if `target_edge_delta` is set
+/// but the encounter has no actor with `role == "opponent"`, or the
+/// named opponent is not present in `snapshot.npcs`, this function
+/// panics. Similarly, a composure break with a missing encounter
+/// panics — the break is only set when a live encounter mutated it, so
+/// a `None` encounter at emit time is a broken invariant, not a
+/// graceful state.
+///
+/// **Resource_deltas carve-out:** unknown resource keys emit a
+/// `resource_pool.delta_rejected` ValidationWarning on BOTH the OTEL
+/// channel and the structured log stream (matching the narrator path
+/// in `state_mutations.rs`). This is the one intentional silent
+/// fallback in this function — resource pools are genre-authored
+/// content and the warning stream is the configured diagnostic path.
 ///
 /// **Telemetry:** emits `creature.edge_delta` on each debit (with
 /// `source=beat`, `beat_id`, `delta`, `new_current`, `encounter_type`)
@@ -135,7 +151,13 @@ pub fn apply_beat_edge_deltas(
             });
         let result = npc.core.edge.apply_delta(-delta);
         let new_current = result.new_current;
-        emit_edge_delta_event(&opponent_name, &beat.id, -delta, new_current, encounter_type);
+        emit_edge_delta_event(
+            &opponent_name,
+            &beat.id,
+            -delta,
+            new_current,
+            encounter_type,
+        );
         outcome.target_new_current = Some(new_current);
         if new_current <= 0 {
             outcome.composure_break = true;
@@ -156,40 +178,50 @@ pub fn apply_beat_edge_deltas(
             let value = delta.abs();
             match snapshot.apply_resource_patch_by_name(resource_name, op, value) {
                 Ok(patch) => {
-                    WatcherEventBuilder::new(
-                        "resource_pool",
-                        WatcherEventType::StateTransition,
-                    )
-                    .field("event", "resource_pool.patched")
-                    .field("resource", resource_name.as_str())
-                    .field("delta", delta)
-                    .field("old_value", patch.old_value)
-                    .field("new_value", patch.new_value)
-                    .field("source", "beat")
-                    .field("beat_id", &beat.id)
-                    .send();
+                    WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
+                        .field("event", "resource_pool.patched")
+                        .field("resource", resource_name.as_str())
+                        .field("delta", delta)
+                        .field("old_value", patch.old_value)
+                        .field("new_value", patch.new_value)
+                        .field("source", "beat")
+                        .field("beat_id", &beat.id)
+                        .send();
                 }
                 Err(e) => {
-                    WatcherEventBuilder::new(
-                        "resource_pool",
-                        WatcherEventType::ValidationWarning,
-                    )
-                    .field("event", "resource_pool.delta_rejected")
-                    .field("resource", resource_name.as_str())
-                    .field("delta", delta)
-                    .field("source", "beat")
-                    .field("beat_id", &beat.id)
-                    .field("error", format!("{e}"))
-                    .send();
+                    // Mirror the gold-delta Err pattern: OTEL event +
+                    // structured tracing warning so both observability
+                    // streams surface the rejection.
+                    tracing::warn!(
+                        beat_id = %beat.id,
+                        resource = %resource_name,
+                        delta = %delta,
+                        error = %e,
+                        "resource_pool.delta_rejected — resource not declared in genre pack"
+                    );
+                    WatcherEventBuilder::new("resource_pool", WatcherEventType::ValidationWarning)
+                        .field("event", "resource_pool.delta_rejected")
+                        .field("resource", resource_name.as_str())
+                        .field("delta", delta)
+                        .field("source", "beat")
+                        .field("beat_id", &beat.id)
+                        .field("error", format!("{e}"))
+                        .send();
                 }
             }
         }
     }
 
     if outcome.composure_break {
-        if let Some(enc) = snapshot.encounter.as_mut() {
-            enc.resolved = true;
-        }
+        // Composure break is only set when a debit above drove a live
+        // encounter actor to edge <= 0, so the encounter MUST still be
+        // present. Panic rather than silently skip the resolution
+        // mutation (reviewer pass finding — CLAUDE.md no-silent-fallback).
+        let enc = snapshot.encounter.as_mut().expect(
+            "apply_beat_edge_deltas: composure_break set but snapshot.encounter is None — \
+             the encounter must still be live at emit time (invariant from debit loop above)",
+        );
+        enc.resolved = true;
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
             .field("event", "encounter.composure_break")
             .field("beat_id", &beat.id)

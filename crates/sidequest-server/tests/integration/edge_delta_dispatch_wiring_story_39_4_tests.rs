@@ -1,9 +1,9 @@
 //! Story 39-4 — beat-driven Edge delta dispatch wiring.
 //!
-//! RED: these tests pin the contract for the new beat-driven edge deltas
-//! (`BeatDef.edge_delta`, `target_edge_delta`, `resource_deltas`) and for
-//! the composure-break auto-resolve that fires when `Edge <= 0` on the
-//! acting character or the primary opponent.
+//! These tests verify the dispatch contract added in story 39-4: the
+//! beat-driven edge deltas (`BeatDef.edge_delta`, `target_edge_delta`,
+//! `resource_deltas`) and the composure-break auto-resolve that fires
+//! when `Edge <= 0` on the acting character or the primary opponent.
 //!
 //! Why this lives as an integration test (outside `src/`):
 //!   The story's AC6 requires a wiring test that drives the edge-delta
@@ -41,9 +41,7 @@
 
 use std::collections::HashMap;
 
-use sidequest_game::creature_core::{
-    CreatureCore, EdgePool, EdgeThreshold, RecoveryTrigger,
-};
+use sidequest_game::creature_core::{CreatureCore, EdgePool, EdgeThreshold, RecoveryTrigger};
 use sidequest_game::encounter::{
     EncounterActor, EncounterMetric, MetricDirection, StructuredEncounter,
 };
@@ -53,9 +51,7 @@ use sidequest_game::state::GameSnapshot;
 use sidequest_game::{Character, Inventory};
 use sidequest_genre::BeatDef;
 use sidequest_protocol::NonBlankString;
-use sidequest_telemetry::{
-    init_global_channel, subscribe_global, WatcherEvent, WatcherEventType,
-};
+use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
 
 // The public-path imports. These must resolve for this file to compile —
 // proving the helper and its outcome are reachable from outside the
@@ -328,6 +324,112 @@ fn target_debit_without_primary_opponent_panics_loudly() {
     let _ = apply_beat_edge_deltas(&mut snap, &beat, "combat");
 }
 
+/// AC3b (npc-missing variant) — opponent is named in `encounter.actors`
+/// but absent from `snapshot.npcs`. The second panic path in
+/// `apply_beat_edge_deltas` exists for this case and must be exercised
+/// distinctly from the actor-missing case above. Shared substring with
+/// the other panic would let a future refactor collapse the two paths
+/// silently; pin the second path explicitly.
+#[test]
+#[should_panic(expected = "not present in snapshot.npcs")]
+fn target_debit_opponent_actor_without_matching_npc_panics_loudly() {
+    let mut snap = GameSnapshot::default();
+    snap.characters.push(hero(10));
+    // Encounter lists a "Phantom" opponent actor, but snapshot.npcs is empty.
+    snap.encounter = Some(combat_encounter_with_opponent("Phantom"));
+
+    let beat = beat_with("strike", None, Some(2), None);
+    let _ = apply_beat_edge_deltas(&mut snap, &beat, "combat");
+}
+
+/// AC5 (gain path) — resource_deltas with a positive value routes
+/// through `ResourcePatchOp::Add` and increments the pool. The
+/// sign-routing branch was untested in the initial RED set.
+#[test]
+fn resource_deltas_positive_value_credits_named_resource_pool() {
+    let mut scope = fresh_channel();
+    let mut snap = snapshot_with_hero_and_opponent(10, 10);
+    snap.resources.insert(
+        "grit".to_string(),
+        ResourcePool {
+            name: "grit".to_string(),
+            label: "Grit".to_string(),
+            current: 1.0,
+            min: 0.0,
+            max: 3.0,
+            voluntary: true,
+            decay_per_turn: 0.0,
+            thresholds: vec![],
+        },
+    );
+
+    let mut deltas = HashMap::new();
+    deltas.insert("grit".to_string(), 1.0);
+    let beat = beat_with("steel_self", None, None, Some(deltas));
+
+    let _ = apply_beat_edge_deltas(&mut snap, &beat, "combat");
+
+    let after = snap.resources.get("grit").expect("grit pool must persist");
+    assert!(
+        (after.current - 2.0).abs() < f64::EPSILON,
+        "resource_deltas.grit=+1.0 must credit the grit pool by 1.0 (expected 2.0, got {})",
+        after.current
+    );
+    // Verify the patched event fired with a positive delta (not a Subtract branch leak).
+    let events = drain(&mut scope.rx);
+    let patched = events
+        .iter()
+        .filter(|e| {
+            e.component == "resource_pool"
+                && e.fields.get("event").and_then(|v| v.as_str()) == Some("resource_pool.patched")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        patched.iter().any(|e| e
+            .fields
+            .get("delta")
+            .and_then(|v| v.as_f64())
+            .is_some_and(|v| (v - 1.0).abs() < f64::EPSILON)),
+        "resource_pool.patched must carry delta=+1.0 for the credit path"
+    );
+}
+
+/// AC5 (unknown-resource carve-out) — an unknown resource name MUST NOT
+/// panic. The dispatch emits a ValidationWarning on OTEL and a structured
+/// `tracing::warn!` entry, then continues with the rest of the beat.
+/// This pins the documented carve-out so a future "no silent fallbacks"
+/// tightening does not accidentally break genre-author ergonomics.
+#[test]
+fn resource_deltas_unknown_resource_emits_warning_and_continues() {
+    let mut scope = fresh_channel();
+    let mut snap = snapshot_with_hero_and_opponent(10, 10);
+    // No pool seeded — the beat references a resource that does not exist.
+    let mut deltas = HashMap::new();
+    deltas.insert("nonexistent_pool".to_string(), -1.0);
+    let beat = beat_with("invoke_nothing", None, None, Some(deltas));
+
+    // Must return normally (no panic).
+    let outcome = apply_beat_edge_deltas(&mut snap, &beat, "combat");
+    assert!(
+        !outcome.composure_break,
+        "unknown-resource carve-out must not trigger composure break"
+    );
+
+    let events = drain(&mut scope.rx);
+    let rejected = events
+        .iter()
+        .filter(|e| {
+            e.component == "resource_pool"
+                && e.fields.get("event").and_then(|v| v.as_str())
+                    == Some("resource_pool.delta_rejected")
+        })
+        .count();
+    assert_eq!(
+        rejected, 1,
+        "exactly one resource_pool.delta_rejected ValidationWarning must fire for the unknown resource"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // AC4 — composure break auto-resolves the encounter
 // ---------------------------------------------------------------------------
@@ -428,7 +530,10 @@ fn resource_deltas_debit_named_resource_pool() {
 
     let _ = apply_beat_edge_deltas(&mut snap, &beat, "combat");
 
-    let after = snap.resources.get("voice").expect("voice pool must persist");
+    let after = snap
+        .resources
+        .get("voice")
+        .expect("voice pool must persist");
     assert!(
         (after.current - 2.0).abs() < f64::EPSILON,
         "resource_deltas.voice=-1.0 must debit the voice pool by 1.0 (expected 2.0, got {})",
