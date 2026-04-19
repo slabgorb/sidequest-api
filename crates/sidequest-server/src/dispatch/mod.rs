@@ -702,13 +702,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("tension", format!("{:.2}", scenario.tension()))
                             .send();
                         // Story 37-24: mechanical-outcome span for Illusionism detection.
-                        // Scenario NPC autonomous actions are narrator-adjudicated (no roll),
-                        // so mechanical_basis is "narrative" — honest signal to the GM panel
-                        // that these NPC turns have no mechanical backing.
+                        // Scenario NPC autonomous actions are narrator-adjudicated — the event
+                        // says the action occurred, not whether it succeeded mechanically.
+                        // Both `outcome` and `mechanical_basis` report "narrative" here so the
+                        // GM panel sees this as an unadjudicated event, not a confirmed success.
+                        // When scenario events grow an explicit success/failure field, this
+                        // site should inspect it and pass the real outcome.
                         crate::emit_npc_turn(
                             npc_name,
                             &format!("{:?}", action),
-                            "success",
+                            "narrative",
                             "narrative",
                         );
                         npc_action_lines.push(event.description.clone());

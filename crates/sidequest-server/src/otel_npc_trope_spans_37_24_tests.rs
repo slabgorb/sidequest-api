@@ -89,17 +89,23 @@ fn npc_turn_emits_watcher_event_with_required_fields() {
 }
 
 // ============================================================
-// AC-3: npc.turn with narrative-only basis (Illusionism flag)
+// AC-3: npc.turn with narrative-only outcome + basis (Illusionism flag)
 // ============================================================
 
 #[test]
 fn npc_turn_narrative_basis_also_emits() {
     let (_guard, mut rx) = fresh_subscriber();
 
-    // NPC acts but narrator did not roll dice. The span still fires, with
-    // mechanical_basis = "narrative" so the GM panel can see Claude is
-    // adjudicating without mechanical backing.
-    crate::emit_npc_turn("Innkeeper Mira", "pours a second ale", "success", "narrative");
+    // NPC acts but narrator did not roll dice AND has no pass/fail
+    // determination. Both outcome and mechanical_basis must be "narrative"
+    // so the GM panel sees this as an unadjudicated event — never a
+    // confirmed mechanical success.
+    crate::emit_npc_turn(
+        "Innkeeper Mira",
+        "pours a second ale",
+        "narrative",
+        "narrative",
+    );
 
     let events = drain_events(&mut rx);
     let npc_events = find_events(&events, "npc", "npc.turn");
@@ -112,6 +118,14 @@ fn npc_turn_narrative_basis_also_emits() {
             .and_then(|v| v.as_str()),
         Some("narrative"),
         "narrative basis must be recorded literally, not elided"
+    );
+    assert_eq!(
+        npc_events[0]
+            .fields
+            .get("outcome")
+            .and_then(|v| v.as_str()),
+        Some("narrative"),
+        "narrative outcome must be recorded literally — never rewritten to 'success'"
     );
 }
 
@@ -169,14 +183,14 @@ fn trope_engagement_outcome_emits_watcher_event_with_required_fields() {
         Some("success"),
         "outcome field required"
     );
-    let delta = e
+    let progression = e
         .fields
-        .get("progression_delta")
+        .get("progression")
         .and_then(|v| v.as_f64())
-        .expect("progression_delta field required and must be numeric");
+        .expect("progression field required and must be numeric");
     assert!(
-        (delta - 0.4).abs() < f64::EPSILON,
-        "progression_delta must round-trip, got {delta}"
+        (progression - 0.4).abs() < f64::EPSILON,
+        "progression must round-trip, got {progression}"
     );
 }
 
@@ -236,8 +250,96 @@ fn engagement_kind_covers_stealth_confrontation_evasion() {
 
 #[test]
 fn emit_functions_are_accessible() {
-    // Compile-time wiring check. If Dev removes or renames either emit fn
-    // this test fails to compile, catching a broken pipeline before runtime.
+    // Compile-time signature check. Complements — does not replace — the
+    // source-grep wiring tests below that verify the dispatch call sites
+    // actually invoke these functions.
     let _f1: fn(&str, &str, &str, &str) = crate::emit_npc_turn;
     let _f2: fn(&str, &str, &str, f64) = crate::emit_trope_engagement_outcome;
+}
+
+// ============================================================
+// Wiring tests: production dispatch sites actually call the emit fns.
+// A compile-time fn-pointer check confirms the pub API exists; these
+// tests confirm the wiring has not been deleted. If either dispatch
+// call site is removed or renamed, these fail loudly. Reading source
+// at test time is deliberate — the dispatch path is too contextual to
+// drive end-to-end in a unit test, but the call sites are small and
+// stable enough that a textual assertion is honest and verifiable.
+// ============================================================
+
+/// Read a file under the sidequest-server crate root, given a path relative
+/// to `crates/sidequest-server/`. Uses `CARGO_MANIFEST_DIR` so the lookup
+/// works regardless of the directory `cargo test` was invoked from.
+fn read_crate_source(relative: &str) -> String {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let path = std::path::Path::new(manifest).join(relative);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
+}
+
+#[test]
+fn emit_npc_turn_is_wired_into_scenario_dispatch() {
+    let src = read_crate_source("src/dispatch/mod.rs");
+    assert!(
+        src.contains("crate::emit_npc_turn("),
+        "dispatch/mod.rs must invoke crate::emit_npc_turn — wiring missing"
+    );
+    // The call site lives inside the ScenarioEventType::NpcAction match arm.
+    // Requiring both strings in the file guards against the call being moved
+    // somewhere irrelevant.
+    assert!(
+        src.contains("ScenarioEventType::NpcAction"),
+        "dispatch/mod.rs must dispatch ScenarioEventType::NpcAction — refactor broke the wiring surface"
+    );
+}
+
+#[test]
+fn emit_trope_engagement_outcome_is_wired_into_tropes_dispatch() {
+    let src = read_crate_source("src/dispatch/tropes.rs");
+    assert!(
+        src.contains("crate::emit_trope_engagement_outcome("),
+        "dispatch/tropes.rs must invoke crate::emit_trope_engagement_outcome — wiring missing"
+    );
+    assert!(
+        src.contains("classify_engagement_kind("),
+        "dispatch/tropes.rs must call classify_engagement_kind — classifier wiring missing"
+    );
+}
+
+#[test]
+fn classify_engagement_kind_covers_all_three_kinds_including_aliases() {
+    // classify_engagement_kind is private to dispatch/tropes.rs, so we assert
+    // its tag map via source read rather than a direct call. This verifies
+    // the alias folding (combat→confrontation, chase→evasion) the code comments
+    // claim and ensures the three primary kinds + two aliases remain present.
+    let src = read_crate_source("src/dispatch/tropes.rs");
+    for needed in [
+        r#"t == "stealth""#,
+        r#"t == "confrontation""#,
+        r#"t == "combat""#,
+        r#"t == "evasion""#,
+        r#"t == "chase""#,
+    ] {
+        assert!(
+            src.contains(needed),
+            "classify_engagement_kind must retain tag match for {needed} — alias coverage regressed"
+        );
+    }
+}
+
+#[test]
+fn non_engagement_trope_produces_no_engagement_span() {
+    // Callers MUST skip emission when classify returns None. The test asserts
+    // at the source level that the two call sites guard their emit with
+    // `if let Some(kind) = classify_engagement_kind(...)`, not a fallback
+    // default value like "other".
+    let src = read_crate_source("src/dispatch/tropes.rs");
+    let occurrences = src.matches("if let Some(kind) = classify_engagement_kind").count();
+    assert!(
+        occurrences >= 2,
+        "expected at least two `if let Some(kind) = classify_engagement_kind` guards \
+         (auto-resolve site and fired-beat site); found {occurrences}. \
+         A caller emitting unconditionally would smear misleading engagement data onto \
+         non-engagement tropes."
+    );
 }

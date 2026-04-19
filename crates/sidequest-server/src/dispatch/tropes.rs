@@ -12,18 +12,36 @@ use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
-/// Story 37-24: classify a trope as a stealth / confrontation / evasion
-/// engagement by inspecting its tags (first qualifying tag wins). Returns
-/// None if the trope is not an engagement type — the caller should skip
-/// the `trope.engagement_outcome` span in that case rather than emit a
-/// misleading `"other"` value.
+/// Return the engagement category (stealth / confrontation / evasion) for a
+/// trope based on its tags, for GM-panel OTEL visibility. First qualifying
+/// tag wins; `combat` is folded into `confrontation` and `chase` into
+/// `evasion` to match tag conventions already in use across genre packs.
+///
+/// Returns `None` in two distinct cases:
+///  - the trope is not an engagement type (no qualifying tag) — legitimate,
+///    the caller should skip the `trope.engagement_outcome` span rather than
+///    emit a misleading `"other"` value;
+///  - the trope id could not be resolved to a definition — a warning is
+///    logged, because the engine only invokes this helper for tropes it
+///    believes are active, so a resolve miss signals a tag-typo, id/name
+///    drift, or a trope pruned between tick and classify.
 fn classify_engagement_kind<'a>(
     trope_id: &str,
     trope_defs: &'a [sidequest_genre::TropeDefinition],
 ) -> Option<&'static str> {
-    let def = trope_defs.iter().find(|d| {
-        d.id.as_deref() == Some(trope_id) || d.name.as_str() == trope_id
-    })?;
+    let def = match trope_defs
+        .iter()
+        .find(|d| d.id.as_deref() == Some(trope_id) || d.name.as_str() == trope_id)
+    {
+        Some(d) => d,
+        None => {
+            tracing::warn!(
+                trope_id,
+                "engagement classify: trope_id not resolvable in trope_defs — span skipped"
+            );
+            return None;
+        }
+    };
     for tag in &def.tags {
         let t = tag.to_ascii_lowercase();
         if t == "stealth" {
