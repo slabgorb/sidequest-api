@@ -47,6 +47,7 @@ mod render_queue_eviction_wiring_tests;
 mod scenario_integration_story_7_9_tests;
 mod scenario_scoring_wiring_story_35_3_tests;
 mod scrapbook_entry_story_33_18_tests;
+mod scrapbook_image_persistence_story_37_28_tests;
 mod sealed_letter_resolution_story_38_5_tests;
 mod server_story_1_12_tests;
 mod server_story_2_1_tests;
