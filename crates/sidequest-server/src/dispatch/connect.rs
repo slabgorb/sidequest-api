@@ -466,6 +466,16 @@ pub(crate) async fn dispatch_connect(
 
                         // SCRAPBOOK replay — load persisted entries so the
                         // gallery re-populates on session resume.
+                        //
+                        // Story 37-28: verify that each entry's image_url
+                        // still resolves to an existing file on disk. URLs
+                        // in the /api/scrapbook/ form live under the save
+                        // directory (durable); legacy /api/renders/ URLs
+                        // live in the global renders pool (volatile). On a
+                        // missing file we emit a loud ValidationWarning
+                        // (event = "scrapbook.image_missing") so the GM
+                        // panel can see orphaned entries — a tracing::warn
+                        // is not visible there. No silent fallback.
                         match state
                             .persistence()
                             .load_scrapbook_entries(genre, world, pname)
@@ -477,6 +487,48 @@ pub(crate) async fn dispatch_connect(
                                     "session_restore.scrapbook_replay"
                                 );
                                 for entry in entries {
+                                    if let Some(url) = entry.image_url.as_ref() {
+                                        if let Some(disk_path) = resolve_scrapbook_image_path(
+                                            url.as_str(),
+                                            state.save_dir(),
+                                        ) {
+                                            if !disk_path.exists() {
+                                                WatcherEventBuilder::new(
+                                                    "scrapbook",
+                                                    WatcherEventType::ValidationWarning,
+                                                )
+                                                .field("event", "scrapbook.image_missing")
+                                                .field("turn_id", entry.turn_id)
+                                                .field("image_url", url.as_str())
+                                                .field("disk_path", disk_path.display().to_string())
+                                                .field("genre", genre)
+                                                .field("world", world)
+                                                .field("player", pname)
+                                                .send();
+                                                tracing::error!(
+                                                    turn_id = entry.turn_id,
+                                                    url = %url.as_str(),
+                                                    disk_path = %disk_path.display(),
+                                                    "scrapbook.image_missing — persisted manifest row points to a file that no longer exists on disk"
+                                                );
+                                            }
+                                        } else {
+                                            // Unrecognized URL shape — also loud.
+                                            WatcherEventBuilder::new(
+                                                "scrapbook",
+                                                WatcherEventType::ValidationWarning,
+                                            )
+                                            .field("event", "scrapbook.image_url_unresolvable")
+                                            .field("turn_id", entry.turn_id)
+                                            .field("image_url", url.as_str())
+                                            .send();
+                                            tracing::error!(
+                                                turn_id = entry.turn_id,
+                                                url = %url.as_str(),
+                                                "scrapbook.image_url_unresolvable — URL does not match /api/scrapbook/ or /api/renders/ shape"
+                                            );
+                                        }
+                                    }
                                     responses.push(GameMessage::ScrapbookEntry {
                                         payload: entry,
                                         player_id: player_id.to_string(),
@@ -3251,4 +3303,53 @@ fn mixer_config_cue(mixer: &sidequest_genre::MixerConfig, player_id: &str) -> Ga
         },
         player_id: player_id.to_string(),
     }
+}
+
+/// Resolve a persisted scrapbook `image_url` to its disk location for the
+/// session-restore file-existence check (story 37-28).
+///
+/// - `/api/scrapbook/{genre}/{world}/{player}/{filename}` resolves under
+///   `{save_dir}/scrapbook/{genre}/{world}/{player}/{filename}` — durable,
+///   save-scoped storage.
+/// - `/api/renders/{filename}` resolves under `SIDEQUEST_OUTPUT_DIR`
+///   (fallback `~/.sidequest/renders`) — the volatile global pool used by
+///   rows written before this story shipped.
+///
+/// Any other URL shape returns `None`; the caller treats that as an
+/// `image_url_unresolvable` validation warning, not a silent pass.
+fn resolve_scrapbook_image_path(
+    url: &str,
+    save_dir: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    if let Some(tail) = url.strip_prefix("/api/scrapbook/") {
+        let mut path = save_dir.join("scrapbook");
+        for segment in tail.split('/') {
+            // Reviewer round-trip 1, finding 1: reject empty / `..` / `.`
+            // segments. A stored image_url of `/api/scrapbook/../../.ssh/id_rsa`
+            // must NOT escape save_dir even if the file happens to exist there.
+            // Returning None routes to the caller's existing
+            // `scrapbook.image_url_unresolvable` WatcherEvent.
+            if segment.is_empty() || segment == ".." || segment == "." {
+                return None;
+            }
+            path.push(segment);
+        }
+        return Some(path);
+    }
+    if let Some(filename) = url.strip_prefix("/api/renders/") {
+        // Reviewer round-trip 1, finding 2: no silent `/tmp` fallback. When
+        // HOME is unset AND SIDEQUEST_OUTPUT_DIR is unset, return None — the
+        // caller already treats that as `scrapbook.image_url_unresolvable`.
+        let renders_dir = match std::env::var("SIDEQUEST_OUTPUT_DIR") {
+            Ok(dir) => std::path::PathBuf::from(dir),
+            Err(_) => match std::env::var("HOME") {
+                Ok(home) => std::path::PathBuf::from(home)
+                    .join(".sidequest")
+                    .join("renders"),
+                Err(_) => return None,
+            },
+        };
+        return Some(renders_dir.join(filename));
+    }
+    None
 }

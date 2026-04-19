@@ -220,6 +220,87 @@ pub(super) async fn build_response_messages(
             None => (None, None, None),
         };
     let image_populated_at_emission = image_url.is_some();
+
+    // Story 37-28 — save-scoped image persistence via `persist_scrapbook_image`.
+    //
+    // The render pipeline serves images from the global `~/.sidequest/renders/`
+    // pool via `/api/renders/{filename}`. That URL survives session resume in
+    // the `scrapbook_entries` row, but the file it points to can be cleaned,
+    // orphaned by cross-machine save transfer, or overwritten by a later
+    // render. Copy the file into a save-scoped subtree (via
+    // `sidequest_game::persist_scrapbook_image`) and rewrite the URL to
+    // `/api/scrapbook/{genre}/{world}/{player}/{filename}` BEFORE the DB
+    // INSERT (see the `append_scrapbook_entry` call below) so the persisted
+    // row references a durable, save-local path.
+    //
+    // On any failure we emit a loud OTEL ValidationWarning (no silent
+    // fallback, per CLAUDE.md) and keep the original `/api/renders/` URL —
+    // the resume-side existence check will catch a dangling file later.
+    let image_url = if let Some(original_url) = image_url {
+        if ctx.genre_slug.is_empty() || ctx.world_slug.is_empty() {
+            // Empty-slug short-circuit (Reviewer round-trip 1, finding 4).
+            // A missing genre/world slug is a configuration error, not a
+            // graceful degradation. We keep the original `/api/renders/` URL
+            // so the client can still render the tile this turn, but emit a
+            // loud ValidationWarning so the GM panel sees that the save-
+            // scoped persistence path was skipped.
+            WatcherEventBuilder::new("scrapbook", WatcherEventType::ValidationWarning)
+                .field("event", "scrapbook.image_persist_skipped_missing_slugs")
+                .field("turn_id", turn_id)
+                .field("original_url", original_url.as_str())
+                .field("genre_slug_empty", ctx.genre_slug.is_empty())
+                .field("world_slug_empty", ctx.world_slug.is_empty())
+                .send();
+            Some(original_url)
+        } else {
+            match rewrite_scrapbook_image_url(
+                original_url.as_str(),
+                ctx.state.save_dir(),
+                ctx.genre_slug,
+                ctx.world_slug,
+                ctx.player_name_for_save,
+            ) {
+                Ok(rewritten) => match NonBlankString::new(&rewritten) {
+                    Ok(nbs) => Some(nbs),
+                    Err(e) => {
+                        // Reviewer round-trip 1, finding 5: the blank-rewrite
+                        // arm must emit a WatcherEvent, not merely a tracing
+                        // line — the GM panel cannot see tracing output.
+                        WatcherEventBuilder::new("scrapbook", WatcherEventType::ValidationWarning)
+                            .field("event", "scrapbook.image_rewrite_url_blank")
+                            .field("turn_id", turn_id)
+                            .field("rewritten", rewritten.as_str())
+                            .field("error", e.to_string())
+                            .send();
+                        tracing::error!(
+                            error = %e,
+                            rewritten = %rewritten,
+                            "scrapbook.image_rewrite_url_blank — keeping original renders URL"
+                        );
+                        Some(original_url)
+                    }
+                },
+                Err(e) => {
+                    WatcherEventBuilder::new("scrapbook", WatcherEventType::ValidationWarning)
+                        .field("event", "scrapbook.image_persist_failed")
+                        .field("turn_id", turn_id)
+                        .field("original_url", original_url.as_str())
+                        .field("error", e.to_string())
+                        .send();
+                    tracing::error!(
+                        error = %e,
+                        url = %original_url.as_str(),
+                        turn_id,
+                        "scrapbook.image_persist_failed — keeping original /api/renders/ URL"
+                    );
+                    Some(original_url)
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     let location_nbs = nbs_ctx(ctx.current_location.as_str(), "current_location");
     let scrapbook_payload = scrapbook::build_scrapbook_entry(
         turn_id,
@@ -611,4 +692,101 @@ pub(super) fn build_confrontation_message(
         },
         player_id: player_id.to_string(),
     }
+}
+
+/// Resolve a scrapbook render URL to its backing file on disk and mirror it
+/// into the save-scoped scrapbook subtree. Returns the new `/api/scrapbook/...`
+/// URL on success (story 37-28).
+///
+/// Accepted `original_url` forms:
+/// - `/api/renders/{filename}` — the default output from the render pipeline;
+///   resolved against `SIDEQUEST_OUTPUT_DIR` or `~/.sidequest/renders`.
+/// - `/api/scrapbook/{...}/{filename}` — already save-scoped; returned
+///   unchanged so repeated passes are idempotent.
+///
+/// Any other URL shape (absolute `http://`, unrecognized prefix) returns an
+/// error without copying — the caller logs loudly and keeps the original URL.
+fn rewrite_scrapbook_image_url(
+    original_url: &str,
+    save_dir: &std::path::Path,
+    genre: &str,
+    world: &str,
+    player: &str,
+) -> Result<String, std::io::Error> {
+    // Idempotence: already save-scoped URLs need no action.
+    if original_url.starts_with("/api/scrapbook/") {
+        return Ok(original_url.to_string());
+    }
+
+    let filename = original_url.strip_prefix("/api/renders/").ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "rewrite_scrapbook_image_url: unsupported URL prefix (expected \
+                     /api/renders/ or /api/scrapbook/): {}",
+                original_url
+            ),
+        )
+    })?;
+
+    // Path-traversal guard on the filename suffix (Reviewer round-trip 1,
+    // finding 1). A daemon-generated path like `../../.ssh/id_rsa` would
+    // otherwise be joined directly into the renders dir and later under the
+    // save tree. Use `Path::file_name()` which strips separators and returns
+    // None on `..`; reject anything else.
+    let filename_osstr = std::path::Path::new(filename).file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "rewrite_scrapbook_image_url: refusing path-traversal \
+                     filename {:?}",
+                filename
+            ),
+        )
+    })?;
+    if filename_osstr.to_string_lossy() != filename {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "rewrite_scrapbook_image_url: filename {:?} contains path \
+                     components (separator or `..`) — expected a single \
+                     render-pipeline filename like `render_{{uuid}}.png`",
+                filename
+            ),
+        ));
+    }
+
+    // Resolve the source path the same way the render broadcaster does.
+    // Reviewer round-trip 1, finding 2: no silent `/tmp` fallback — if both
+    // `SIDEQUEST_OUTPUT_DIR` and `HOME` are unset, return a loud `NotFound`
+    // so the caller's existing `scrapbook.image_persist_failed` OTEL path
+    // fires. `/tmp` was masking a configuration error.
+    let renders_dir = match std::env::var("SIDEQUEST_OUTPUT_DIR") {
+        Ok(dir) => std::path::PathBuf::from(dir),
+        Err(_) => match std::env::var("HOME") {
+            Ok(home) => std::path::PathBuf::from(home)
+                .join(".sidequest")
+                .join("renders"),
+            Err(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "rewrite_scrapbook_image_url: cannot resolve renders dir — \
+                     neither SIDEQUEST_OUTPUT_DIR nor HOME is set",
+                ));
+            }
+        },
+    };
+    let src_path = renders_dir.join(filename);
+
+    sidequest_game::persist_scrapbook_image(save_dir, genre, world, player, &src_path)?;
+
+    // URL-encoding note: `genre`, `world`, and `player` are slug-like
+    // identifiers elsewhere in dispatch (they already key the SQLite save
+    // path). The filename is a daemon-generated `render_{uuid}.png`. No
+    // component needs percent-encoding at this seam; if that changes,
+    // replace this with a proper url-encoder call.
+    Ok(format!(
+        "/api/scrapbook/{}/{}/{}/{}",
+        genre, world, player, filename
+    ))
 }

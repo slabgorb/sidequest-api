@@ -61,6 +61,7 @@ pub mod scenario_scoring;
 pub mod scenario_state;
 pub mod scene_directive;
 pub mod scene_relevance;
+pub mod scrapbook_store;
 pub mod sealed_round;
 pub mod session_restore;
 pub mod slash_router;
@@ -168,6 +169,7 @@ pub use scenario_scoring::{
 };
 pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
+pub use scrapbook_store::persist_scrapbook_image;
 pub use sidequest_genre::TrackVariation;
 pub use state::{
     broadcast_state_changes, build_protocol_delta, DiscoveredRooms, GameSnapshot, NpcPatch,
