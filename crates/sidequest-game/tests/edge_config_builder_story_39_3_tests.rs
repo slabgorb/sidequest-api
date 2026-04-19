@@ -20,10 +20,7 @@ use sidequest_genre::{
 
 fn heavy_metal_edge_config() -> EdgeConfig {
     EdgeConfig {
-        base_max_by_class: HashMap::from([
-            ("Fighter".to_string(), 6),
-            ("Wizard".to_string(), 4),
-        ]),
+        base_max_by_class: HashMap::from([("Fighter".to_string(), 6), ("Wizard".to_string(), 4)]),
         recovery_defaults: EdgeRecoveryDefaults {
             on_resolution: Some(RecoveryBehaviour::Full),
             on_long_rest: Some(RecoveryBehaviour::Full),

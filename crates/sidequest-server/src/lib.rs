@@ -76,7 +76,9 @@ pub use tracing_setup::{build_subscriber_with_filter, init_tracing, tracing_subs
 // integration test can construct a live `GameSnapshot` and drive the helper
 // through the crate's public API, proving the symbol is reachable rather
 // than just matching a source-string scan in `dispatch/mod.rs`.
-pub use dispatch::beat::{apply_beat_dispatch, BeatDispatchOutcome};
+pub use dispatch::beat::{
+    apply_beat_dispatch, apply_beat_edge_deltas, BeatDispatchOutcome, EdgeDeltaOutcome,
+};
 
 // Story 38-5: public re-export of the sealed-letter resolution handler
 // and its outcome type so integration tests can reach them through the
