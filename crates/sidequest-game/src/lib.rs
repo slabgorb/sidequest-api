@@ -47,6 +47,7 @@ pub mod npc;
 pub mod npc_actions;
 pub mod ocean;
 pub mod ocean_shift_proposals;
+pub mod party_peer;
 pub mod party_reconciliation;
 pub mod perception;
 pub mod persistence;
@@ -144,6 +145,7 @@ pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
 pub use ocean_shift_proposals::{
     apply_ocean_shifts, propose_ocean_shifts, OceanShiftProposal, PersonalityEvent,
 };
+pub use party_peer::{format_party_peer_block, inject_party_peers, PartyPeer, PartyPeerError};
 pub use persistence::{
     PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry, SavedSession, SessionMeta,
     SessionStore, SqliteStore,

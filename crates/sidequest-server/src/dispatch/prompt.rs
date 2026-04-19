@@ -1,6 +1,6 @@
 //! Narrator prompt context builder — assembles state summary for the LLM.
 
-use sidequest_game::PreprocessedAction;
+use sidequest_game::{format_party_peer_block, inject_party_peers, PreprocessedAction};
 
 use crate::npc_context::build_npc_registry_context_budgeted;
 use crate::{WatcherEventBuilder, WatcherEventType};
@@ -197,6 +197,42 @@ pub(crate) async fn build_prompt_context(
                 ));
             }
         }
+    }
+
+    // Canonical party-peer identity (story 37-36).
+    //
+    // Refresh `snapshot.party_peers` from the authoritative per-turn roster
+    // (`snapshot.characters`) before assembling the prompt block, so that
+    // mid-session roster changes (a player joining, a character death, a
+    // class change) propagate into every player's peer packet on the next
+    // turn instead of sticking at connect-time values.
+    //
+    // A clone is cheap relative to narrator latency and avoids the mutable /
+    // immutable borrow split on `ctx.snapshot`. `SelfNotFound` is downgraded
+    // to a `warn` rather than a hard fail — the prompt still assembles and
+    // the narrator just loses peer canonical identity for this turn, with a
+    // loud log for the GM panel.
+    if !ctx.snapshot.characters.is_empty() {
+        let roster = ctx.snapshot.characters.clone();
+        if let Err(e) = inject_party_peers(ctx.snapshot, &roster, ctx.char_name) {
+            tracing::warn!(
+                target: "sidequest_server::dispatch::prompt",
+                error = %e,
+                char_name = ctx.char_name,
+                "party_peer injection failed — peer identity may drift on this turn"
+            );
+        }
+    }
+
+    // Pulled from `snapshot.party_peers` — the authoritative identity packet
+    // just refreshed above. The narrator references this block for stable
+    // name/pronouns/race/class/level of every other party member, so
+    // sealed-letter turns between saves no longer drift (playtest 3:
+    // Blutka he/him → she/her in Orin's save).
+    let peer_block = format_party_peer_block(&ctx.snapshot.party_peers);
+    if !peer_block.is_empty() {
+        state_summary.push_str("\n\n");
+        state_summary.push_str(&peer_block);
     }
 
     // Location constraint — prevent narrator from teleporting between scenes

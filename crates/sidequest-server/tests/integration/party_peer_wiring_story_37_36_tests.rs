@@ -93,10 +93,18 @@ fn char_with_identity(
 fn format_party_peer_block_includes_each_peers_name_and_pronouns() {
     let peers = vec![
         PartyPeer::from_character(&char_with_identity(
-            "Blutka", "he/him", "Ogrekin", "Berserker", 3,
+            "Blutka",
+            "he/him",
+            "Ogrekin",
+            "Berserker",
+            3,
         )),
         PartyPeer::from_character(&char_with_identity(
-            "Orin", "they/them", "Human", "Cleric", 3,
+            "Orin",
+            "they/them",
+            "Human",
+            "Cleric",
+            3,
         )),
     ];
 
@@ -198,8 +206,8 @@ fn wiring_turn_dispatch_calls_inject_party_peers() {
     let dispatch_dir = "src/dispatch";
     let mut found_in: Option<String> = None;
 
-    for entry in fs::read_dir(dispatch_dir)
-        .expect("read src/dispatch/ for turn-pipeline wiring scan")
+    for entry in
+        fs::read_dir(dispatch_dir).expect("read src/dispatch/ for turn-pipeline wiring scan")
     {
         let entry = entry.expect("dispatch dir entry");
         let path = entry.path();

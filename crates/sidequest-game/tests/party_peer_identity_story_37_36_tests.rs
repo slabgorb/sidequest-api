@@ -169,11 +169,13 @@ fn legacy_save_json_without_party_peers_deserializes_with_empty_vec() {
 
 #[test]
 fn party_peers_serde_roundtrip_preserves_all_fields() {
-    let mut snap = GameSnapshot::default();
-    snap.party_peers = vec![
-        PartyPeer::from_character(&blutka()),
-        PartyPeer::from_character(&orin()),
-    ];
+    let snap = GameSnapshot {
+        party_peers: vec![
+            PartyPeer::from_character(&blutka()),
+            PartyPeer::from_character(&orin()),
+        ],
+        ..Default::default()
+    };
 
     let wire = serde_json::to_string(&snap).expect("serialize");
     let restored: GameSnapshot = serde_json::from_str(&wire).expect("deserialize");
@@ -202,7 +204,10 @@ fn inject_party_peers_excludes_self_character() {
     assert_eq!(n, 2);
     assert_eq!(snap.party_peers.len(), 2);
     let names: Vec<&str> = snap.party_peers.iter().map(|p| p.name.as_str()).collect();
-    assert!(!names.contains(&"Orin"), "self must never appear in own peers");
+    assert!(
+        !names.contains(&"Orin"),
+        "self must never appear in own peers"
+    );
     assert!(names.contains(&"Blutka"));
     assert!(names.contains(&"Rux"));
 }
@@ -307,7 +312,11 @@ async fn inject_party_peers_emits_watcher_event() {
     for _ in 0..16 {
         match rx.try_recv() {
             Ok(ev) => {
-                let action = ev.fields.get("action").and_then(|v| v.as_str()).unwrap_or("");
+                let action = ev
+                    .fields
+                    .get("action")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if action == "party_peer_inject" {
                     found = Some(ev);
                     break;
