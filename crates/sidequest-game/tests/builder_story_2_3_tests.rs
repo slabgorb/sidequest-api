@@ -185,6 +185,7 @@ fn test_rules() -> RulesConfig {
         resources: vec![],
         xp_affinity: None,
         initiative_rules: std::collections::HashMap::new(),
+        edge_config: None,
     }
 }
 

@@ -555,11 +555,114 @@ impl TryFrom<RawConfrontationDef> for ConfrontationDef {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Edge / Composure config (story 39-3)
+// ═══════════════════════════════════════════════════════════
+
+/// Direction in which an `EdgeThresholdDecl` fires.
+///
+/// Currently all EdgePool thresholds fire on downward crossings by
+/// construction (see `sidequest-game::thresholds::detect_crossings`),
+/// but the genre YAML may declare `direction: crossing_down` explicitly.
+/// `#[non_exhaustive]` leaves room for `CrossingUp` (buff-side thresholds)
+/// in a future story without breaking external match arms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CrossingDirection {
+    /// Threshold fires when the pool value crosses from above to below `at`.
+    CrossingDown,
+}
+
+/// Recovery behaviour for an edge pool at a named cadence (e.g. on
+/// confrontation resolution, on long rest).
+///
+/// Only `full` is authored in heavy_metal today. `#[non_exhaustive]` so
+/// 39-6 can add `Partial { amount: i32 }` without a breaking change.
+/// Using an enum rather than `Option<String>` means YAML typos like
+/// `Full` or `fulll` fail at load time, not silently at runtime inside
+/// the rest handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RecoveryBehaviour {
+    /// Restore the pool to `max` at this cadence.
+    Full,
+}
+
+/// Downward threshold declared in `edge_config.thresholds`.
+///
+/// Parsed verbatim from YAML; mapped onto `EdgePool.thresholds`
+/// (`sidequest-game::creature_core::EdgeThreshold`) by
+/// `edge_pool_from_config` in `sidequest-game::creature_core`
+/// (wired in story 39-3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EdgeThresholdDecl {
+    /// Value at which the threshold fires (crossed downward).
+    pub at: i32,
+    /// Event identifier (e.g. `edge_strained`, `composure_break`).
+    pub event_id: String,
+    /// Narrator hint injected when crossed.
+    pub narrator_hint: String,
+    /// Crossing direction (currently all thresholds are `crossing_down`
+    /// by construction — see `CrossingDirection`). Optional in YAML for
+    /// backwards compatibility with decls that omit the tag.
+    #[serde(default)]
+    pub direction: Option<CrossingDirection>,
+}
+
+/// Default recovery behaviour for composure pools.
+///
+/// Drives how Edge refills between confrontations and after rests.
+/// Parsed verbatim; wired into the beat/rest system in 39-4/39-6.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct EdgeRecoveryDefaults {
+    /// Refill behaviour when a confrontation resolves.
+    #[serde(default)]
+    pub on_resolution: Option<RecoveryBehaviour>,
+    /// Refill behaviour on long rest.
+    #[serde(default)]
+    pub on_long_rest: Option<RecoveryBehaviour>,
+    /// Refill amount when a new confrontation begins before a breath
+    /// was taken (0 = carry whatever remains).
+    #[serde(default)]
+    pub between_back_to_back: Option<i32>,
+}
+
+/// Per-genre Edge / Composure configuration.
+///
+/// Replaces the deprecated HP scaffolding (`hp_formula`, `class_hp_bases`,
+/// `default_hp`, `default_ac`, `stat_display_fields`) for packs migrated to
+/// Edge. Authored per §1 of `heavy_metal/_drafts/edge-advancement-content.md`.
+///
+/// A pack that has migrated to Edge MUST declare `edge_config`. Packs still
+/// using the phantom-HP scaffold keep their legacy fields until their own
+/// migration story — the loader tolerates both shapes so other packs keep
+/// parsing, but each pack owns its own migration moment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EdgeConfig {
+    /// Per-class base Edge capacity. Keyed by class name as it appears in
+    /// `allowed_classes` (e.g. "Fighter").
+    pub base_max_by_class: HashMap<String, i32>,
+    /// Default recovery behaviour for this genre.
+    #[serde(default)]
+    pub recovery_defaults: EdgeRecoveryDefaults,
+    /// Downward thresholds (narrator-facing). Typical heavy_metal shape:
+    /// one entry at `at: 1` (edge_strained), one at `at: 0`
+    /// (composure_break).
+    #[serde(default)]
+    pub thresholds: Vec<EdgeThresholdDecl>,
+    /// Character-sheet display field order (e.g. `[edge, max_edge,
+    /// composure_state]`). Read declaratively by the UI.
+    #[serde(default)]
+    pub display_fields: Vec<String>,
+}
+
+// ═══════════════════════════════════════════════════════════
 // rules.yaml
 // ═══════════════════════════════════════════════════════════
 
 /// Game rules configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RulesConfig {
     /// Narrative tone (e.g., "gonzo-sincere").
     #[serde(default)]
@@ -585,9 +688,14 @@ pub struct RulesConfig {
     /// Available character races.
     #[serde(default)]
     pub allowed_races: Vec<String>,
-    /// Base HP per class.
+    /// Base HP per class. Legacy — only populated for packs that have
+    /// not yet migrated to `edge_config` (story 39-3+).
     #[serde(default)]
     pub class_hp_bases: HashMap<String, u32>,
+    /// Per-genre Edge / Composure configuration (story 39-3). `None` for
+    /// packs still on the phantom-HP scaffold; `Some` once migrated.
+    #[serde(default)]
+    pub edge_config: Option<EdgeConfig>,
     /// Default character class.
     #[serde(default)]
     pub default_class: Option<String>,

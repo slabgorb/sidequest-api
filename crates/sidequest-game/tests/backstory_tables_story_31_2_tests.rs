@@ -135,6 +135,7 @@ fn rules_3d6() -> RulesConfig {
         resources: vec![],
         xp_affinity: None,
         initiative_rules: std::collections::HashMap::new(),
+        edge_config: None,
     }
 }
 
