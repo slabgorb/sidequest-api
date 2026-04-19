@@ -7,6 +7,7 @@ mod test_helpers;
 
 mod beat_dispatch_wiring_story_28_5_tests;
 mod beat_dispatch_wiring_story_37_14_tests;
+mod edge_delta_dispatch_wiring_story_39_4_tests;
 mod canonical_snapshot_story_15_8_tests;
 mod chargen_back_action_wiring_story_37_7_tests;
 mod confrontation_beats_wiring_story_28_3_tests;
