@@ -71,6 +71,7 @@ pub mod subject;
 pub mod tactical;
 pub mod tension_tracker;
 pub mod theme_rotator;
+pub mod thresholds;
 pub mod treasure_xp;
 pub mod trope;
 pub mod turn;

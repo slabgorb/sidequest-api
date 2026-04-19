@@ -4,11 +4,10 @@
 //! decay_per_turn, voluntary spending control, and threshold-based event detection.
 //! Story 16-11: threshold crossings mint LoreFragments for permanent narrator memory.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
-use crate::lore::{LoreCategory, LoreFragment, LoreSource, LoreStore};
+use crate::lore::LoreStore;
+use crate::thresholds::{self, ThresholdAt};
 
 /// A threshold that fires an event when the pool value crosses below it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +18,20 @@ pub struct ResourceThreshold {
     pub event_id: String,
     /// Hint text injected into narrator prompt when crossed.
     pub narrator_hint: String,
+}
+
+impl ThresholdAt for ResourceThreshold {
+    type Value = f64;
+
+    fn at(&self) -> f64 {
+        self.at
+    }
+    fn event_id(&self) -> &str {
+        &self.event_id
+    }
+    fn narrator_hint(&self) -> &str {
+        &self.narrator_hint
+    }
 }
 
 /// A named resource pool with bounded numeric value and optional thresholds.
@@ -93,41 +106,11 @@ pub enum ResourcePatchError {
 
 /// Mint LoreFragments from threshold crossings (story 16-11).
 ///
-/// Each crossed threshold becomes a LoreFragment with:
-/// - id: the threshold's event_id
-/// - category: Event (high relevance for narrator context selection)
-/// - content: the threshold's narrator_hint
-/// - source: GameEvent
-/// - turn_created: the current turn number
-///
-/// Duplicates are silently skipped (LoreStore rejects duplicate IDs).
+/// Thin wrapper that forwards to `crate::thresholds::mint_threshold_lore`,
+/// the shared helper both ResourcePool and EdgePool route through as of
+/// story 39-1. Duplicates are silently skipped (LoreStore rejects them).
 pub fn mint_threshold_lore(thresholds: &[ResourceThreshold], store: &mut LoreStore, turn: u64) {
-    for threshold in thresholds {
-        let fragment = LoreFragment::new(
-            threshold.event_id.clone(),
-            LoreCategory::Event,
-            threshold.narrator_hint.clone(),
-            LoreSource::GameEvent,
-            Some(turn),
-            HashMap::new(),
-        );
-        let _ = store.add(fragment);
-    }
-}
-
-/// Detect which thresholds were crossed by a value change (downward crossing only).
-///
-/// A threshold at `t.at` is crossed when `old_value > t.at` and `new_value <= t.at`.
-fn detect_crossings(
-    thresholds: &[ResourceThreshold],
-    old_value: f64,
-    new_value: f64,
-) -> Vec<ResourceThreshold> {
-    thresholds
-        .iter()
-        .filter(|t| old_value > t.at && new_value <= t.at)
-        .cloned()
-        .collect()
+    thresholds::mint_threshold_lore(thresholds, store, turn);
 }
 
 impl ResourcePool {
@@ -141,7 +124,7 @@ impl ResourcePool {
         };
         self.current = raw.clamp(self.min, self.max);
 
-        let crossed = detect_crossings(&self.thresholds, old_value, self.current);
+        let crossed = thresholds::detect_crossings(&self.thresholds, old_value, self.current);
 
         ResourcePatchResult {
             old_value,
@@ -200,7 +183,7 @@ impl GameSnapshot {
             let raw = pool.current + pool.decay_per_turn;
             pool.current = raw.clamp(pool.min, pool.max);
 
-            let crossed = detect_crossings(&pool.thresholds, old_value, pool.current);
+            let crossed = thresholds::detect_crossings(&pool.thresholds, old_value, pool.current);
             all_crossings.extend(crossed);
         }
 
