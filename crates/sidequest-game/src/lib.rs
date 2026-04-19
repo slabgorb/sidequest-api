@@ -69,9 +69,9 @@ pub mod state;
 pub mod subject;
 /// Tactical grid maps — ASCII room geometry for dungeon combat (ADR-071).
 pub mod tactical;
-pub mod thresholds;
 pub mod tension_tracker;
 pub mod theme_rotator;
+pub mod thresholds;
 pub mod treasure_xp;
 pub mod trope;
 pub mod turn;
