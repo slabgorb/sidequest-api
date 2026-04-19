@@ -146,6 +146,19 @@ struct RawBeatDef {
     narrator_hint: Option<String>,
     #[serde(default)]
     gold_delta: Option<i32>,
+    /// Story 39-4: self-debit composure cost — acting character's edge
+    /// decreases by this amount when the beat lands.
+    #[serde(default)]
+    edge_delta: Option<i32>,
+    /// Story 39-4: target-debit composure cost — primary opponent's edge
+    /// decreases by this amount when the beat lands.
+    #[serde(default)]
+    target_edge_delta: Option<i32>,
+    /// Story 39-4: named resource pool deltas applied when the beat lands.
+    /// Keys reference ResourcePool names declared in the genre pack; values
+    /// are signed (negative = spend, positive = gain).
+    #[serde(default)]
+    resource_deltas: Option<HashMap<String, f64>>,
 }
 
 /// A single action available during a confrontation.
@@ -187,6 +200,20 @@ pub struct BeatDef {
     /// Positive = player gains gold, negative = player loses gold (ante, bet, etc.).
     #[serde(default)]
     pub gold_delta: Option<i32>,
+    /// Story 39-4: acting character's composure cost when the beat lands.
+    /// Positive = edge spent (debit); negative = edge restored (rare — see
+    /// `RecoveryTrigger` for the usual recovery path).
+    #[serde(default)]
+    pub edge_delta: Option<i32>,
+    /// Story 39-4: primary opponent's composure cost when the beat lands.
+    /// Positive = debit opponent edge (combat damage equivalent).
+    #[serde(default)]
+    pub target_edge_delta: Option<i32>,
+    /// Story 39-4: named resource pool deltas applied when the beat lands.
+    /// Keys reference ResourcePool names declared in the genre pack; values
+    /// are signed f64 (negative = spend, positive = gain).
+    #[serde(default)]
+    pub resource_deltas: Option<HashMap<String, f64>>,
 }
 
 impl TryFrom<RawBeatDef> for BeatDef {
@@ -209,6 +236,9 @@ impl TryFrom<RawBeatDef> for BeatDef {
             requires: raw.requires,
             narrator_hint: raw.narrator_hint,
             gold_delta: raw.gold_delta,
+            edge_delta: raw.edge_delta,
+            target_edge_delta: raw.target_edge_delta,
+            resource_deltas: raw.resource_deltas,
         })
     }
 }

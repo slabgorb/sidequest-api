@@ -39,11 +39,186 @@
 //! which scans for `apply_beat_dispatch(` at the dispatch layer.
 
 use sidequest_game::state::GameSnapshot;
-use sidequest_genre::ConfrontationDef;
+use sidequest_genre::{BeatDef, ConfrontationDef};
 
 use crate::{Severity, WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
+
+/// Story 39-4: outcome of applying the beat-driven edge and resource
+/// deltas carried on a `BeatDef`. Returned by `apply_beat_edge_deltas`
+/// so `handle_applied_side_effects` (and integration tests) can observe
+/// whether the beat resolved the encounter via composure break.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EdgeDeltaOutcome {
+    /// Acting character's new edge.current after `beat.edge_delta` was
+    /// applied, or `None` if the beat carried no self-debit.
+    pub self_new_current: Option<i32>,
+    /// Primary opponent's new edge.current after `beat.target_edge_delta`
+    /// was applied, or `None` if the beat carried no target-debit.
+    pub target_new_current: Option<i32>,
+    /// `true` when either the acting character or the primary opponent
+    /// was driven to `edge.current <= 0`, which auto-resolves the
+    /// encounter and emits `encounter.composure_break`.
+    pub composure_break: bool,
+}
+
+/// Story 39-4: apply a beat's `edge_delta`, `target_edge_delta`, and
+/// `resource_deltas` to the snapshot.
+///
+/// Called from `handle_applied_side_effects` on the Applied outcome.
+/// Mutates `snapshot.characters[0].core.edge` on self-debit, the primary
+/// opponent's `core.edge` on target-debit (first `EncounterActor` with
+/// `role == "opponent"`), and `snapshot.resources[name]` for each entry
+/// in `resource_deltas`. Sets `snapshot.encounter.resolved = true` on
+/// composure break.
+///
+/// **No silent fallbacks:** if `target_edge_delta` is set but the
+/// encounter has no actor with `role == "opponent"`, this function
+/// panics. A silent skip would mask a configuration bug — the narrator
+/// emitted a target-debit beat into an encounter that has no target.
+///
+/// **Telemetry:** emits `creature.edge_delta` on each debit (with
+/// `source=beat`, `beat_id`, `delta`, `new_current`, `encounter_type`)
+/// and `encounter.composure_break` when `edge <= 0` on either side.
+pub fn apply_beat_edge_deltas(
+    snapshot: &mut GameSnapshot,
+    beat: &BeatDef,
+    encounter_type: &str,
+) -> EdgeDeltaOutcome {
+    let mut outcome = EdgeDeltaOutcome::default();
+    let mut broken: Option<String> = None;
+
+    // Self-debit — acting character is snapshot.characters[0] (dispatch
+    // convention; the builder and dispatch loop keep the acting PC in
+    // slot 0).
+    if let Some(delta) = beat.edge_delta {
+        let (name, new_current) = {
+            let ch = snapshot
+                .characters
+                .first_mut()
+                .expect("apply_beat_edge_deltas: self-debit requires an acting character in snapshot.characters[0]");
+            let result = ch.core.edge.apply_delta(-delta);
+            (ch.core.name.as_str().to_string(), result.new_current)
+        };
+        emit_edge_delta_event(&name, &beat.id, -delta, new_current, encounter_type);
+        outcome.self_new_current = Some(new_current);
+        if new_current <= 0 {
+            outcome.composure_break = true;
+            broken = Some(name);
+        }
+    }
+
+    // Target-debit — find the primary opponent (first actor with
+    // role="opponent"). No silent fallback: if target_edge_delta is set
+    // but no opponent is declared, panic.
+    if let Some(delta) = beat.target_edge_delta {
+        let opponent_name = snapshot
+            .encounter
+            .as_ref()
+            .and_then(|e| e.actors.iter().find(|a| a.role == "opponent"))
+            .map(|a| a.name.clone())
+            .expect(
+                "apply_beat_edge_deltas: beat.target_edge_delta set but no primary opponent \
+                 (actor with role=\"opponent\") found in encounter — no silent fallback",
+            );
+        let npc = snapshot
+            .npcs
+            .iter_mut()
+            .find(|n| n.core.name.as_str() == opponent_name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "apply_beat_edge_deltas: primary opponent \"{}\" named in encounter.actors \
+                     is not present in snapshot.npcs — no silent fallback",
+                    opponent_name
+                )
+            });
+        let result = npc.core.edge.apply_delta(-delta);
+        let new_current = result.new_current;
+        emit_edge_delta_event(&opponent_name, &beat.id, -delta, new_current, encounter_type);
+        outcome.target_new_current = Some(new_current);
+        if new_current <= 0 {
+            outcome.composure_break = true;
+            broken = Some(opponent_name);
+        }
+    }
+
+    // Resource deltas — route through the existing ResourcePool path.
+    // Silently unknown resources emit a ValidationWarning (same policy
+    // as the narrator-emitted path in state_mutations.rs).
+    if let Some(ref deltas) = beat.resource_deltas {
+        for (resource_name, delta) in deltas {
+            let op = if *delta >= 0.0 {
+                sidequest_game::ResourcePatchOp::Add
+            } else {
+                sidequest_game::ResourcePatchOp::Subtract
+            };
+            let value = delta.abs();
+            match snapshot.apply_resource_patch_by_name(resource_name, op, value) {
+                Ok(patch) => {
+                    WatcherEventBuilder::new(
+                        "resource_pool",
+                        WatcherEventType::StateTransition,
+                    )
+                    .field("event", "resource_pool.patched")
+                    .field("resource", resource_name.as_str())
+                    .field("delta", delta)
+                    .field("old_value", patch.old_value)
+                    .field("new_value", patch.new_value)
+                    .field("source", "beat")
+                    .field("beat_id", &beat.id)
+                    .send();
+                }
+                Err(e) => {
+                    WatcherEventBuilder::new(
+                        "resource_pool",
+                        WatcherEventType::ValidationWarning,
+                    )
+                    .field("event", "resource_pool.delta_rejected")
+                    .field("resource", resource_name.as_str())
+                    .field("delta", delta)
+                    .field("source", "beat")
+                    .field("beat_id", &beat.id)
+                    .field("error", format!("{e}"))
+                    .send();
+                }
+            }
+        }
+    }
+
+    if outcome.composure_break {
+        if let Some(enc) = snapshot.encounter.as_mut() {
+            enc.resolved = true;
+        }
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.composure_break")
+            .field("beat_id", &beat.id)
+            .field("encounter_type", encounter_type)
+            .field("broken", broken.as_deref().unwrap_or(""))
+            .field("source", "beat")
+            .send();
+    }
+
+    outcome
+}
+
+fn emit_edge_delta_event(
+    name: &str,
+    beat_id: &str,
+    delta: i32,
+    new_current: i32,
+    encounter_type: &str,
+) {
+    WatcherEventBuilder::new("creature", WatcherEventType::StateTransition)
+        .field("event", "creature.edge_delta")
+        .field("source", "beat")
+        .field("name", name)
+        .field("beat_id", beat_id)
+        .field("delta", delta)
+        .field("new_current", new_current)
+        .field("encounter_type", encounter_type)
+        .send();
+}
 
 /// Outcome of `apply_beat_dispatch`. One variant per observable branch.
 ///
@@ -314,6 +489,12 @@ pub(super) fn handle_applied_side_effects(
     let metric_delta = beat.metric_delta;
     let gold_delta = beat.gold_delta;
     let resolved_beat_id = beat.id.clone();
+    let beat_for_edge = beat.clone();
+
+    // Story 39-4: beat-driven edge and resource deltas. Runs before the
+    // gold-delta block so a composure break (encounter auto-resolve) is
+    // visible to downstream escalation checks below.
+    apply_beat_edge_deltas(ctx.snapshot, &beat_for_edge, encounter_type);
 
     // Gold delta: mutate inventory and emit a ledger event.
     if let Some(gd) = gold_delta {

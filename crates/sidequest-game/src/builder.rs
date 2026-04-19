@@ -1400,6 +1400,27 @@ impl CharacterBuilder {
                 .send();
             crate::creature_core::placeholder_edge_pool()
         };
+        // Story 39-4: hard-coded Fighter +2 edge_max advancement stub —
+        // a smoke-gate so Keith can playtest the Edge system before the
+        // authored AdvancementTree lands in 39-5. REPLACED IN 39-5
+        // (ADR-078). The stub is explicit, scoped, and emits OTEL so
+        // the GM panel shows the Fighter bonus firing.
+        let edge = if class_str == "Fighter" {
+            let mut tuned = edge;
+            tuned.max += 2;
+            tuned.base_max += 2;
+            tuned.current = tuned.max;
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "advancement_stub_applied")
+                .field("advancement_id", "fighter_base_plus_2_edge")
+                .field("class", class_str)
+                .field("edge_max_after", tuned.max as i64)
+                .field("source", "hardcoded_stub_story_39_4")
+                .send();
+            tuned
+        } else {
+            edge
+        };
         let character = Character {
             core: CreatureCore {
                 name: NonBlankString::new(name).map_err(|_| BuilderError::WrongPhase {

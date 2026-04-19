@@ -204,11 +204,27 @@ fn drain(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<Watcher
     out
 }
 
-fn fresh_channel() -> tokio::sync::broadcast::Receiver<WatcherEvent> {
+/// Process-wide telemetry lock. The global broadcast channel is shared by
+/// every test in this binary (and by `test_support::TELEMETRY_LOCK` on
+/// the src side, but that lock is `pub(crate)` and not reachable from
+/// integration tests). Holding this guard for the whole
+/// subscribe-drive-assert window serialises all tests in this file so
+/// they don't clobber each other's events.
+static TELEMETRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+struct Scope {
+    _guard: std::sync::MutexGuard<'static, ()>,
+    rx: tokio::sync::broadcast::Receiver<WatcherEvent>,
+}
+
+fn fresh_channel() -> Scope {
+    let guard = TELEMETRY_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let _ = init_global_channel();
     let mut rx = subscribe_global().expect("global telemetry channel must initialize");
     while rx.try_recv().is_ok() {}
-    rx
+    Scope { _guard: guard, rx }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +233,7 @@ fn fresh_channel() -> tokio::sync::broadcast::Receiver<WatcherEvent> {
 
 #[test]
 fn self_debit_decreases_acting_character_edge() {
-    let mut rx = fresh_channel();
+    let mut scope = fresh_channel();
     let mut snap = snapshot_with_hero_and_opponent(10, 10);
     let beat = beat_with("brace", Some(2), None, None);
 
@@ -232,7 +248,7 @@ fn self_debit_decreases_acting_character_edge() {
         "composure_break must be false when edge > 0 after debit"
     );
 
-    let events = drain(&mut rx);
+    let events = drain(&mut scope.rx);
     let edge_events = find_events(&events, "creature", "creature.edge_delta");
     assert!(
         !edge_events.is_empty(),
@@ -265,7 +281,7 @@ fn self_debit_decreases_acting_character_edge() {
 
 #[test]
 fn target_debit_decreases_primary_opponent_edge() {
-    let mut rx = fresh_channel();
+    let mut scope = fresh_channel();
     let mut snap = snapshot_with_hero_and_opponent(10, 10);
     let beat = beat_with("strike", None, Some(2), None);
 
@@ -284,7 +300,7 @@ fn target_debit_decreases_primary_opponent_edge() {
         "no composure break when opponent survives the hit"
     );
 
-    let events = drain(&mut rx);
+    let events = drain(&mut scope.rx);
     let edge_events = find_events(&events, "creature", "creature.edge_delta");
     assert!(
         edge_events
@@ -318,7 +334,7 @@ fn target_debit_without_primary_opponent_panics_loudly() {
 
 #[test]
 fn composure_break_auto_resolves_encounter_when_opponent_hits_zero() {
-    let mut rx = fresh_channel();
+    let mut scope = fresh_channel();
     // Opponent on the edge — one more hit ends it.
     let mut snap = snapshot_with_hero_and_opponent(10, 2);
     let beat = beat_with("finish", None, Some(2), None);
@@ -341,7 +357,7 @@ fn composure_break_auto_resolves_encounter_when_opponent_hits_zero() {
         "encounter.resolved must flip to true on composure break"
     );
 
-    let events = drain(&mut rx);
+    let events = drain(&mut scope.rx);
     let breaks = find_events(&events, "encounter", "encounter.composure_break");
     assert_eq!(
         breaks.len(),
@@ -364,7 +380,7 @@ fn composure_break_auto_resolves_encounter_when_opponent_hits_zero() {
 
 #[test]
 fn self_debit_to_zero_also_resolves_and_emits_break() {
-    let mut rx = fresh_channel();
+    let mut scope = fresh_channel();
     let mut snap = snapshot_with_hero_and_opponent(2, 10);
     let beat = beat_with("overextend", Some(5), None, None);
 
@@ -376,7 +392,7 @@ fn self_debit_to_zero_also_resolves_and_emits_break() {
     );
     assert!(outcome.composure_break);
     assert!(snap.encounter.as_ref().unwrap().resolved);
-    let events = drain(&mut rx);
+    let events = drain(&mut scope.rx);
     assert_eq!(
         find_events(&events, "encounter", "encounter.composure_break").len(),
         1,
@@ -426,7 +442,7 @@ fn resource_deltas_debit_named_resource_pool() {
 
 #[test]
 fn wiring_apply_beat_edge_deltas_reachable_via_crate_public_api() {
-    let mut rx = fresh_channel();
+    let mut scope = fresh_channel();
     let mut snap = snapshot_with_hero_and_opponent(10, 10);
     let beat = beat_with("strike", None, Some(2), None);
 
@@ -439,7 +455,7 @@ fn wiring_apply_beat_edge_deltas_reachable_via_crate_public_api() {
         "edge=8 is above the 0 break threshold"
     );
 
-    let events = drain(&mut rx);
+    let events = drain(&mut scope.rx);
     assert!(
         !find_events(&events, "creature", "creature.edge_delta").is_empty(),
         "Wiring: a real BeatDef driven through the public API must emit \
