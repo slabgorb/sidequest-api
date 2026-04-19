@@ -105,6 +105,7 @@ fn rules_with_hp_formula() -> RulesConfig {
         resources: vec![],
         xp_affinity: None,
         initiative_rules: std::collections::HashMap::new(),
+        edge_config: None,
     }
 }
 
@@ -112,6 +113,7 @@ fn rules_with_hp_formula() -> RulesConfig {
 fn rules_without_hp_formula() -> RulesConfig {
     RulesConfig {
         hp_formula: None,
+        edge_config: None,
         ..rules_with_hp_formula()
     }
 }

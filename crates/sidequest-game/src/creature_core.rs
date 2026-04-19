@@ -17,6 +17,7 @@ use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 use crate::combatant::Combatant;
 use crate::inventory::Inventory;
 use crate::thresholds::{detect_crossings, ThresholdAt};
+use sidequest_genre::EdgeConfig;
 
 /// Default placeholder base_max for edge pools synthesized by constructors
 /// that haven't yet been wired to per-class YAML (story 39-3).
@@ -35,6 +36,67 @@ pub fn placeholder_edge_pool() -> EdgePool {
         recovery_triggers: vec![RecoveryTrigger::OnResolution],
         thresholds: vec![],
     }
+}
+
+/// Error returned when an `EdgeConfig` does not declare `base_max_by_class`
+/// for the requested class.
+///
+/// Intentionally loud — matches the "no silent fallbacks" project rule. A
+/// heavy_metal character whose class is missing from the config fails chargen
+/// rather than silently reverting to the placeholder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeConfigMissingClassError {
+    /// Class name that was missing from `base_max_by_class`.
+    pub class: String,
+}
+
+impl std::fmt::Display for EdgeConfigMissingClassError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "edge_config.base_max_by_class missing entry for class '{}'",
+            self.class
+        )
+    }
+}
+
+impl std::error::Error for EdgeConfigMissingClassError {}
+
+/// Build a genre-authored `EdgePool` from an `EdgeConfig` and a class name.
+///
+/// Resolves `base_max` from `edge_config.base_max_by_class[class]` (fails
+/// loudly when absent), converts every `EdgeThresholdDecl` to an
+/// `EdgeThreshold`, and seeds `recovery_triggers` with `OnResolution`
+/// (39-4/5/6 will layer additional triggers via `AdvancementEffect`).
+/// The crossing-direction tag from YAML is informational — all EdgePool
+/// thresholds fire on downward crossings by construction.
+pub fn edge_pool_from_config(
+    edge_config: &EdgeConfig,
+    class: &str,
+) -> Result<EdgePool, EdgeConfigMissingClassError> {
+    let base_max = edge_config
+        .base_max_by_class
+        .get(class)
+        .copied()
+        .ok_or_else(|| EdgeConfigMissingClassError {
+            class: class.to_string(),
+        })?;
+    let thresholds = edge_config
+        .thresholds
+        .iter()
+        .map(|decl| EdgeThreshold {
+            at: decl.at,
+            event_id: decl.event_id.clone(),
+            narrator_hint: decl.narrator_hint.clone(),
+        })
+        .collect();
+    Ok(EdgePool {
+        current: base_max,
+        max: base_max,
+        base_max,
+        recovery_triggers: vec![RecoveryTrigger::OnResolution],
+        thresholds,
+    })
 }
 
 /// Shared fields for any creature (Character or NPC).

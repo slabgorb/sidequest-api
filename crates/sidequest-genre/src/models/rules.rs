@@ -629,7 +629,7 @@ pub struct EdgeConfig {
 // ═══════════════════════════════════════════════════════════
 
 /// Game rules configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RulesConfig {
     /// Narrative tone (e.g., "gonzo-sincere").
     #[serde(default)]

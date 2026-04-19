@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use rand::Rng;
 use sidequest_genre::{
-    BackstoryTables, CharCreationScene, EquipmentTables, MechanicalEffects, RulesConfig,
+    BackstoryTables, CharCreationScene, EdgeConfig, EquipmentTables, MechanicalEffects, RulesConfig,
 };
 use sidequest_protocol::{
     CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString, RolledStat,
@@ -200,6 +200,11 @@ pub enum BuilderError {
     /// Name is purely numeric — likely a UI index, not a real character name.
     #[error("invalid character name: '{0}' is purely numeric (likely a UI index, not a name)")]
     NumericName(String),
+    /// Genre pack declared `edge_config` but omitted a `base_max_by_class`
+    /// entry for the character's class. Fails chargen loudly (story 39-3) —
+    /// silently reverting to the placeholder would hide content bugs.
+    #[error("edge_config.base_max_by_class missing entry for class '{0}'")]
+    EdgeConfigMissingClass(String),
 }
 
 // ============================================================================
@@ -227,6 +232,11 @@ pub struct CharacterBuilder {
     /// HP formula string from genre pack (e.g., "8 + CON_modifier").
     /// When present, overrides class_hp_bases lookup during build().
     hp_formula: Option<String>,
+    /// Edge / Composure config from the genre pack (story 39-3). When
+    /// present, `build()` seeds `CreatureCore.edge` from this config
+    /// using `edge_pool_from_config`; when absent, falls back to the
+    /// placeholder pool for unmigrated packs.
+    edge_config: Option<EdgeConfig>,
     /// Point budget for point-buy stat generation (D&D 5e standard: 27).
     point_buy_budget: u32,
     /// Pre-rolled stats for roll_3d6_strict (rolled eagerly at construction).
@@ -348,6 +358,7 @@ impl CharacterBuilder {
             default_ac: rules.default_ac,
             class_hp_bases: rules.class_hp_bases.clone(),
             hp_formula: rules.hp_formula.clone(),
+            edge_config: rules.edge_config.clone(),
             point_buy_budget: rules.point_buy_budget,
             race_label: rules
                 .race_label
@@ -1352,11 +1363,42 @@ impl CharacterBuilder {
             .send();
 
         // Epic 39: hp_formula / class_hp_bases / default_ac computation stays
-        // wired (the GM panel depends on the `chargen.hp_formula_evaluated` /
-        // `chargen.hp_fallback` OTEL events and stories 39-3/6 will use the
-        // same evaluator to seed edge.base_max from YAML). For 39-2 we discard
-        // the computed values and install a placeholder edge pool.
+        // wired for the OTEL trail (GM panel depends on the
+        // `chargen.hp_formula_evaluated` / `chargen.hp_fallback` events).
+        // 39-3 replaces the 39-2 placeholder with a YAML-driven EdgePool
+        // when the genre pack declares `edge_config`. Packs that haven't
+        // migrated (the other 9) keep the placeholder pool until their own
+        // story lands.
         let _ = (base_hp, ac);
+        let edge = if let Some(ref cfg) = self.edge_config {
+            let pool = crate::creature_core::edge_pool_from_config(cfg, class_str).map_err(
+                |e| BuilderError::EdgeConfigMissingClass(e.class),
+            )?;
+            // OTEL: chargen.edge_seeded — GM panel confirms YAML-driven
+            // edge sizing fired (vs the placeholder fallback below).
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "edge_seeded")
+                .field("source", "edge_config")
+                .field("class", class_str)
+                .field("base_max", pool.base_max as i64)
+                .field("threshold_count", pool.thresholds.len() as i64)
+                .send();
+            pool
+        } else {
+            // Unmigrated pack — legacy placeholder. Emit a Warn-shaped OTEL
+            // event so the GM panel surfaces packs still on phantom HP.
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "edge_seeded")
+                .field("source", "placeholder")
+                .field("class", class_str)
+                .field(
+                    "base_max",
+                    crate::creature_core::PLACEHOLDER_EDGE_BASE_MAX as i64,
+                )
+                .field("reason", "genre pack has no edge_config")
+                .send();
+            crate::creature_core::placeholder_edge_pool()
+        };
         let character = Character {
             core: CreatureCore {
                 name: NonBlankString::new(name).map_err(|_| BuilderError::WrongPhase {
@@ -1372,7 +1414,7 @@ impl CharacterBuilder {
                 xp: 0,
                 inventory: Inventory { items, gold: 0 },
                 statuses: vec![],
-                edge: crate::creature_core::placeholder_edge_pool(),
+                edge,
                 acquired_advancements: vec![],
             },
             backstory: NonBlankString::new(&backstory_text).unwrap(),

@@ -60,6 +60,7 @@ fn rules() -> RulesConfig {
         default_location: Some("Town".into()),
         default_time_of_day: Some("morning".into()),
         hp_formula: None,
+        edge_config: None,
         banned_spells: vec![],
         custom_rules: HashMap::new(),
         stat_display_fields: vec![],
