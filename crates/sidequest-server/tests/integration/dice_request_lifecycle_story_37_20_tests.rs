@@ -52,9 +52,9 @@
 
 use std::time::{Duration, Instant};
 
-use sidequest_protocol::{DiceRequestPayload, DieSides, DieSpec};
+use sidequest_protocol::{types::Stat, DiceRequestPayload, DieSides, DieSpec};
 use sidequest_server::shared_session::SharedGameSession;
-use sidequest_telemetry::{WatcherEventType, init_global_channel, subscribe_global};
+use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEventType};
 
 fn fresh_session() -> SharedGameSession {
     SharedGameSession::new("caverns_and_claudes".to_string(), "testworld".to_string())
@@ -70,7 +70,7 @@ fn dice_request(request_id: &str) -> DiceRequestPayload {
             count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
         }],
         modifier: 2,
-        stat: "dexterity".to_string(),
+        stat: Stat::new("dexterity").expect("literal 'dexterity' is a valid stat"),
         difficulty: std::num::NonZeroU32::new(15).expect("15 is nonzero"),
         context: "Defend roll — nat 20 hunting grounds".to_string(),
     }
@@ -143,8 +143,7 @@ fn insert_pending_dice_request_is_idempotent_on_same_request_id() {
     // Probe with a tiny timeout (10ms) — the original insert is >10ms
     // old, so it must still be flagged expired. If issued_at got
     // bumped on re-insert, this assertion catches the regression.
-    let expired =
-        ss.expired_pending_dice_requests(Instant::now(), Duration::from_millis(10));
+    let expired = ss.expired_pending_dice_requests(Instant::now(), Duration::from_millis(10));
     assert_eq!(
         expired.len(),
         1,
@@ -174,7 +173,7 @@ fn duplicate_request_id_with_different_payload_emits_warning_event() {
 
     // Build a conflicting payload: same id, different stat/context.
     let mut mutated = original.clone();
-    mutated.stat = "wisdom".to_string();
+    mutated.stat = Stat::new("wisdom").expect("literal 'wisdom' is a valid stat");
     mutated.context = "Replayed from a stale session".to_string();
     ss.insert_pending_dice_request(mutated);
 
@@ -184,7 +183,11 @@ fn duplicate_request_id_with_different_payload_emits_warning_event() {
         .pending_dice_requests
         .get("req-dup")
         .expect("original must still be present");
-    assert_eq!(stored.stat, "dexterity", "duplicate must not overwrite");
+    assert_eq!(
+        stored.stat.as_str(),
+        "DEXTERITY",
+        "duplicate must not overwrite"
+    );
 
     // And a loud signal must have hit the GM panel.
     let mut matched = None;
@@ -218,8 +221,7 @@ fn expired_pending_dice_requests_excludes_fresh_requests() {
     ss.insert_pending_dice_request(dice_request("req-gamma"));
 
     // Probe immediately with a generous timeout.
-    let expired =
-        ss.expired_pending_dice_requests(Instant::now(), Duration::from_secs(30));
+    let expired = ss.expired_pending_dice_requests(Instant::now(), Duration::from_secs(30));
     assert!(
         expired.is_empty(),
         "fresh request must not be flagged expired — got {:?}",
@@ -237,7 +239,10 @@ fn resolved_requests_are_not_retried() {
     // Route removal through the chokepoint so the `issued_at` sidecar
     // stays in lockstep with the canonical map.
     let removed = ss.remove_pending_dice_request("req-delta");
-    assert!(removed.is_some(), "chokepoint must return the removed payload");
+    assert!(
+        removed.is_some(),
+        "chokepoint must return the removed payload"
+    );
 
     let now_later = Instant::now() + Duration::from_secs(60);
     let expired = ss.expired_pending_dice_requests(now_later, Duration::from_secs(1));
@@ -305,10 +310,7 @@ fn emit_dice_request_recovery_sends_watcher_event() {
         match rx.try_recv() {
             Ok(ev) => {
                 let is_recovery = ev.component == "dice"
-                    && ev
-                        .fields
-                        .get("event")
-                        .and_then(serde_json::Value::as_str)
+                    && ev.fields.get("event").and_then(serde_json::Value::as_str)
                         == Some("dice_request.recovery");
                 if is_recovery {
                     matched = Some(ev);
@@ -329,7 +331,9 @@ fn emit_dice_request_recovery_sends_watcher_event() {
         ev.event_type
     );
     assert_eq!(
-        ev.fields.get("request_id").and_then(serde_json::Value::as_str),
+        ev.fields
+            .get("request_id")
+            .and_then(serde_json::Value::as_str),
         Some("req-epsilon"),
         "request_id must ride the span so the GM panel can correlate retry -> original"
     );

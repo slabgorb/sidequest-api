@@ -120,10 +120,7 @@ fn npc_turn_narrative_basis_also_emits() {
         "narrative basis must be recorded literally, not elided"
     );
     assert_eq!(
-        npc_events[0]
-            .fields
-            .get("outcome")
-            .and_then(|v| v.as_str()),
+        npc_events[0].fields.get("outcome").and_then(|v| v.as_str()),
         Some("narrative"),
         "narrative outcome must be recorded literally — never rewritten to 'success'"
     );
@@ -334,7 +331,9 @@ fn non_engagement_trope_produces_no_engagement_span() {
     // `if let Some(kind) = classify_engagement_kind(...)`, not a fallback
     // default value like "other".
     let src = read_crate_source("src/dispatch/tropes.rs");
-    let occurrences = src.matches("if let Some(kind) = classify_engagement_kind").count();
+    let occurrences = src
+        .matches("if let Some(kind) = classify_engagement_kind")
+        .count();
     assert!(
         occurrences >= 2,
         "expected at least two `if let Some(kind) = classify_engagement_kind` guards \

@@ -2496,6 +2496,70 @@ pub(crate) async fn dispatch_character_creation(
                             .collect(),
                     };
 
+                    // Story 37-27: Character snapshot on session-start.
+                    // The opening-turn `compose_responses` call above emits a
+                    // PARTY_STATUS whose `sheet` facet is None, because the
+                    // acting player hasn't been inserted into the shared
+                    // session yet (that happens ~600 lines below, in the
+                    // "Add player to shared session and broadcast PARTY_STATUS"
+                    // block).
+                    // Without a populated sheet, App.tsx's characterSheet
+                    // setter skips the update and the Character tab stays
+                    // blank until the first real player-action turn.
+                    //
+                    // Emit a corrected PARTY_STATUS carrying the freshly
+                    // built sheet so the tab populates as soon as session
+                    // ready arrives. The client's sheet handler ignores
+                    // PARTY_STATUS with sheet=None, so ordering against
+                    // later turn-updates is safe.
+                    let session_start_party_status = {
+                        let class_nbs =
+                            sidequest_protocol::NonBlankString::new(character.char_class.as_str())
+                                .unwrap_or_else(|_| {
+                                    sidequest_protocol::NonBlankString::new("Adventurer")
+                                        .expect("literal \"Adventurer\" is non-blank")
+                                });
+                        let name_nbs = sidequest_protocol::NonBlankString::new(
+                            player_name_store.as_deref().unwrap_or("Player"),
+                        )
+                        .expect("player name falls back to literal \"Player\"");
+                        let pid_nbs = sidequest_protocol::NonBlankString::new(player_id)
+                            .expect("player_id is non-empty at session ready");
+                        GameMessage::PartyStatus {
+                            payload: PartyStatusPayload {
+                                members: vec![PartyMember {
+                                    player_id: pid_nbs,
+                                    name: name_nbs,
+                                    character_name: Some(character.core.name.clone()),
+                                    current_hp: *character_hp,
+                                    max_hp: *character_max_hp,
+                                    statuses: character.core.statuses.clone(),
+                                    class: class_nbs,
+                                    level: *character_level,
+                                    portrait_url: None,
+                                    current_location: sidequest_protocol::NonBlankString::new(
+                                        current_location,
+                                    )
+                                    .ok(),
+                                    sheet: Some(built_sheet.clone()),
+                                    inventory: Some(crate::shared_session::inventory_payload_from(
+                                        inventory,
+                                    )),
+                                }],
+                            },
+                            player_id: player_id.to_string(),
+                        }
+                    };
+                    WatcherEventBuilder::new("session", WatcherEventType::StateTransition)
+                        .field("event", "session.start.character_snapshot_emitted")
+                        .field("player_id", player_id)
+                        .field("character_name", character.core.name.as_str())
+                        .field("genre", session.genre_slug().unwrap_or(""))
+                        .field("world", session.world_slug().unwrap_or(""))
+                        .field("sheet_class", character.char_class.as_str())
+                        .field("inventory_count", inventory.carried().count())
+                        .send();
+
                     // Emit the character's backstory as a prose narration so
                     // it appears in the narrative view — not just in the overlay.
                     let backstory_narration = GameMessage::Narration {
@@ -3102,6 +3166,13 @@ pub(crate) async fn dispatch_character_creation(
                     // The joining player sees: backstory → "here's what's been happening" → opening scene.
                     msgs.extend(catch_up_messages);
                     msgs.extend(intro_messages);
+                    // Story 37-27: corrected PARTY_STATUS with populated
+                    // sheet facet, pushed after intro_messages (which
+                    // contained a sheet=None PARTY_STATUS from compose_responses
+                    // running before the player was in the shared session)
+                    // and before ready so the Character tab is populated by
+                    // the time the client processes SessionEvent::ready.
+                    msgs.push(session_start_party_status);
                     msgs.push(ready);
 
                     // Barrier-aware reconnect signals: override the generic
