@@ -2,6 +2,14 @@
 //!
 //! Story 1-13: Extracted from Character and NPC to eliminate duplication.
 //! Both types embed `CreatureCore` via composition.
+//!
+//! Story 39-1 (epic 39): This file also hosts the `EdgePool` type
+//! family — `EdgePool`, `EdgeThreshold`, `RecoveryTrigger`, and
+//! `DeltaResult`. These are kept here (rather than in a dedicated
+//! module) because later stories wire `EdgePool` directly into
+//! `CreatureCore`; colocation keeps the eventual field + impl in the
+//! same file. AC5 still forbids `EdgePool` references in dispatch/,
+//! server/, or the `CreatureCore` struct body until 39-2 lands.
 
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;

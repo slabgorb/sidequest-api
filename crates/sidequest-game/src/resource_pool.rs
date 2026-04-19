@@ -108,7 +108,9 @@ pub enum ResourcePatchError {
 ///
 /// Thin wrapper that forwards to `crate::thresholds::mint_threshold_lore`,
 /// the shared helper both ResourcePool and EdgePool route through as of
-/// story 39-1. Duplicates are silently skipped (LoreStore rejects them).
+/// story 39-1. Duplicate event_ids are skipped by `LoreStore` and
+/// logged at `tracing::warn!` — see `thresholds::mint_threshold_lore`
+/// for the full contract.
 pub fn mint_threshold_lore(thresholds: &[ResourceThreshold], store: &mut LoreStore, turn: u64) {
     thresholds::mint_threshold_lore(thresholds, store, turn);
 }
