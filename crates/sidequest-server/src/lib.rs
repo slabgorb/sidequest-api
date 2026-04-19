@@ -16,6 +16,8 @@ pub(crate) mod extraction;
 pub(crate) mod npc_context;
 #[cfg(test)]
 mod otel_dice_spans_34_11_tests;
+#[cfg(test)]
+mod otel_npc_trope_spans_37_24_tests;
 pub mod render_integration;
 pub mod scrapbook;
 pub(crate) mod session;
@@ -80,6 +82,69 @@ pub use dispatch::beat::{apply_beat_dispatch, BeatDispatchOutcome};
 // and its outcome type so integration tests can reach them through the
 // crate's public API (same pattern as the beat dispatch re-export above).
 pub use dispatch::sealed_letter::{resolve_sealed_letter_lookup, SealedLetterOutcome};
+
+// ---------------------------------------------------------------------------
+// Story 37-24: OTEL spans for NPC mechanical turns + stealth/trope engagement.
+// Closes the Illusionism gap for two specific dispatch sites — scenario-loop
+// NPC autonomous actions (ScenarioEventType::NpcAction) and trope-engagement
+// resolutions (stealth / confrontation / evasion). Other NPC dispatch paths
+// (combat NPC turns, random encounter NPCs) are NOT yet covered; future
+// stories extend the pattern. The `trope.engagement_outcome` emissions let
+// Sebastien's rules-first GM-panel view verify the trope engine actually ran.
+// ---------------------------------------------------------------------------
+
+/// Emit a `npc.turn` WatcherEvent when an NPC action resolves.
+///
+/// The `outcome` and `mechanical_basis` fields together are the Illusionism
+/// signal: they distinguish narrator-improvised NPC actions from mechanically
+/// adjudicated ones, so the GM panel can surface NPC behavior that has no
+/// rule backing.
+///
+/// `outcome` is drawn from the set `"success" | "failure" | "partial" |
+/// "narrative"`. `"narrative"` means the outcome was narrator-adjudicated
+/// without a pass/fail determination (e.g., scenario autonomous NPC actions
+/// that simply describe an event happening). It is a distinct value — not
+/// an alias for `"success"` — because reporting every narrator-improvised
+/// NPC action as a mechanical success is exactly the Illusionism this span
+/// is meant to detect.
+///
+/// `mechanical_basis` is a roll reference like `"d20:14 vs dc:12"` when a
+/// check was rolled, or the literal `"narrative"` when no roll occurred.
+/// Must always be present — the absence of mechanical backing must be
+/// explicitly labeled, never elided.
+pub fn emit_npc_turn(actor: &str, action: &str, outcome: &str, mechanical_basis: &str) {
+    WatcherEventBuilder::new("npc", WatcherEventType::StateTransition)
+        .field("event", "npc.turn")
+        .field("actor", actor)
+        .field("action", action)
+        .field("outcome", outcome)
+        .field("mechanical_basis", mechanical_basis)
+        .send();
+}
+
+/// Emit a `trope.engagement_outcome` WatcherEvent when a stealth / confrontation
+/// / evasion trope resolves (either via auto-resolve at progression ≥ 1.0 or
+/// via a fired escalation beat on a tag-qualifying trope).
+///
+/// `progression` is the absolute progression value at the moment of emission
+/// (0.0–1.0 for auto-resolve; the beat threshold watermark for fired beats).
+/// The field appears on the wire as `progression`, not as a delta — callers
+/// that have a real delta available can emit a second event or store the
+/// delta externally.
+pub fn emit_trope_engagement_outcome(
+    trope_id: &str,
+    engagement_kind: &str,
+    outcome: &str,
+    progression: f64,
+) {
+    WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
+        .field("event", "trope.engagement_outcome")
+        .field("trope_id", trope_id)
+        .field("engagement_kind", engagement_kind)
+        .field("outcome", outcome)
+        .field("progression", progression)
+        .send();
+}
 
 // ---------------------------------------------------------------------------
 // Story 34-11: OTEL dice span emitters — GM panel visibility for dice dispatch
