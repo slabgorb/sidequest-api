@@ -68,7 +68,15 @@ fn dispatch_snapshot() -> GameSnapshot {
                 description: NonBlankString::new("A scarred warrior").unwrap(),
                 personality: NonBlankString::new("Gruff").unwrap(),
                 level: 3,
-                edge: sidequest_game::creature_core::placeholder_edge_pool(),
+                edge: sidequest_game::creature_core::EdgePool {
+                    current: 18,
+                    max: 25,
+                    base_max: 25,
+                    recovery_triggers: vec![
+                        sidequest_game::creature_core::RecoveryTrigger::OnResolution,
+                    ],
+                    thresholds: vec![],
+                },
                 acquired_advancements: vec![],
                 xp: 450,
                 inventory: {
@@ -513,7 +521,17 @@ fn multi_turn_patch_then_save_preserves_mutations() {
     // Load and verify mutations persisted
     let loaded = store.load().unwrap().unwrap();
     assert_eq!(loaded.snapshot.location, "Scorched Outpost");
-    assert_eq!(loaded.snapshot.characters.first().unwrap().core.edge.current, 5);
+    assert_eq!(
+        loaded
+            .snapshot
+            .characters
+            .first()
+            .unwrap()
+            .core
+            .edge
+            .current,
+        5
+    );
     assert_eq!(loaded.snapshot.characters.first().unwrap().core.level, 4);
     assert_eq!(loaded.snapshot.narrative_log.len(), 2);
 }

@@ -657,7 +657,7 @@ fn apply_hp_delta_emits_event() {
     let (_guard, mut rx) = fresh_subscriber();
     let mut creature = test_creature();
 
-    creature.edge.apply_delta(-5);
+    creature.apply_edge_delta(-5);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");
@@ -675,7 +675,7 @@ fn hp_delta_event_has_required_fields() {
     let mut creature = test_creature();
     // creature starts at hp=15, max_hp=20
 
-    creature.edge.apply_delta(-5);
+    creature.apply_edge_delta(-5);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");
@@ -729,7 +729,7 @@ fn hp_delta_clamped_true_on_overheal() {
     let mut creature = test_creature();
     // hp=15, max_hp=20, heal +100 → clamped to 20
 
-    creature.edge.apply_delta(100);
+    creature.apply_edge_delta(100);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");
@@ -752,7 +752,7 @@ fn hp_delta_clamped_true_on_overkill() {
     let mut creature = test_creature();
     // hp=15, damage -100 → clamped to 0
 
-    creature.edge.apply_delta(-100);
+    creature.apply_edge_delta(-100);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");
@@ -775,7 +775,7 @@ fn hp_delta_clamped_false_when_within_range() {
     let mut creature = test_creature();
     // hp=15, max_hp=20, damage -3 → 12 (no clamping)
 
-    creature.edge.apply_delta(-3);
+    creature.apply_edge_delta(-3);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");

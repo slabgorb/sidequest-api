@@ -101,7 +101,9 @@ fn build_production_character() -> sidequest_game::character::Character {
         builder.is_confirmation(),
         "single-scene flow should auto-advance to Confirmation"
     );
-    builder.build("Grog").expect("build succeeds from Confirmation")
+    builder
+        .build("Grog")
+        .expect("build succeeds from Confirmation")
 }
 
 // ────────────────────────────────────────────────────────────────────────────

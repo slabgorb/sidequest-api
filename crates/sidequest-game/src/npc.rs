@@ -94,10 +94,12 @@ pub struct Npc {
 impl Npc {
     /// Create a minimal NPC for combat — just enough for resolve_attack to work.
     /// Full NPC data (appearance, personality, etc.) can be enriched later.
-    pub fn combat_minimal(name: &str, _hp: i32, _max_hp: i32, level: u32) -> Self {
-        // Epic 39: hp/max_hp parameters retained for call-site compatibility,
-        // but ignored — a placeholder EdgePool is synthesized. Story 39-3
-        // replaces this constructor's signature with edge-based inputs.
+    pub fn combat_minimal(name: &str, edge_current: i32, edge_max: i32, level: u32) -> Self {
+        // Epic 39: legacy `hp`/`max_hp` parameters now seed the EdgePool
+        // directly by position. Story 39-3 replaces the signature with an
+        // explicit `EdgePool` argument so the semantics are spelled at the
+        // call site; until then, (hp, max_hp) == (edge.current, edge.max,
+        // edge.base_max).
         Self {
             core: CreatureCore {
                 name: NonBlankString::new(name)
@@ -108,7 +110,13 @@ impl Npc {
                 inventory: crate::Inventory::default(),
                 statuses: vec![],
                 xp: 0,
-                edge: crate::creature_core::placeholder_edge_pool(),
+                edge: crate::creature_core::EdgePool {
+                    current: edge_current,
+                    max: edge_max,
+                    base_max: edge_max,
+                    recovery_triggers: vec![crate::creature_core::RecoveryTrigger::OnResolution],
+                    thresholds: vec![],
+                },
                 acquired_advancements: vec![],
             },
             voice_id: None,

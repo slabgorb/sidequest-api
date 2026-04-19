@@ -154,7 +154,7 @@ fn creature_hp_delta_emits_span() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.edge.apply_delta(-5);
+        creature.apply_edge_delta(-5);
     });
 
     let spans = captured.lock().unwrap();
@@ -188,7 +188,7 @@ fn creature_hp_delta_includes_name() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.edge.apply_delta(-5);
+        creature.apply_edge_delta(-5);
     });
 
     let spans = captured.lock().unwrap();
@@ -211,7 +211,7 @@ fn creature_hp_delta_reports_correct_values() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.edge.apply_delta(-5);
+        creature.apply_edge_delta(-5);
     });
 
     let spans = captured.lock().unwrap();
@@ -240,7 +240,7 @@ fn creature_hp_delta_reports_clamped_on_overkill() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.edge.apply_delta(-100);
+        creature.apply_edge_delta(-100);
     });
 
     let spans = captured.lock().unwrap();
@@ -272,7 +272,7 @@ fn creature_hp_delta_reports_clamped_on_overheal() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.edge.apply_delta(100);
+        creature.apply_edge_delta(100);
     });
 
     let spans = captured.lock().unwrap();
@@ -300,7 +300,7 @@ fn creature_hp_delta_reports_unclamped_on_normal_damage() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        creature.edge.apply_delta(-5);
+        creature.apply_edge_delta(-5);
     });
 
     let spans = captured.lock().unwrap();

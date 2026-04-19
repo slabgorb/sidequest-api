@@ -289,8 +289,8 @@ async fn ac2_validation_warning_contains_check_name_and_text() {
         .as_str()
         .expect("violation field must be a string");
     assert!(
-        text.contains("HP") && text.contains("exceeds"),
-        "Violation text should describe the HP bounds issue, got: {}",
+        text.contains("edge") && text.contains("exceeds"),
+        "Violation text should describe the edge bounds issue (story 39-2 renamed HP→edge), got: {}",
         text
     );
 }

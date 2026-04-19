@@ -458,13 +458,13 @@ impl GameSnapshot {
     fn apply_hp_change(&mut self, name: &str, delta: i32) {
         for c in &mut self.characters {
             if c.name() == name {
-                c.core.edge.apply_delta(delta);
+                c.core.apply_edge_delta(delta);
                 return;
             }
         }
         for n in &mut self.npcs {
             if n.name() == name {
-                n.core.edge.apply_delta(delta);
+                n.core.apply_edge_delta(delta);
                 return;
             }
         }

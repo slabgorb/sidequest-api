@@ -14,6 +14,10 @@
 //! RED state: `run_validator()` currently only logs and collects turn_ids.
 //! It does not call `run_legality_checks()` or emit WatcherEvents.
 
+// The mock builders below are scaffolding for the future AC1-AC5 tests that
+// will replace the `test_run_validator_receives_turn_records` placeholder.
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 use chrono::Utc;

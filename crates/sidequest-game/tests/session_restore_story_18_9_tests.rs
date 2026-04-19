@@ -45,7 +45,15 @@ fn rich_character() -> Character {
                 .unwrap(),
             personality: NonBlankString::new("Cautious but fiercely loyal").unwrap(),
             level: 5,
-            edge: sidequest_game::creature_core::placeholder_edge_pool(),
+            edge: sidequest_game::creature_core::EdgePool {
+                current: 38,
+                max: 42,
+                base_max: 42,
+                recovery_triggers: vec![
+                    sidequest_game::creature_core::RecoveryTrigger::OnResolution,
+                ],
+                thresholds: vec![],
+            },
             acquired_advancements: vec![],
             xp: 1200,
             inventory: rich_inventory(),
@@ -420,12 +428,10 @@ fn extract_character_state_returns_edge() {
     let snapshot = rich_snapshot();
     let result = extract_character_state(&snapshot).unwrap();
 
-    // Story 39-2: RestoredCharacterState carries edge/max_edge instead of
-    // hp/max_hp/ac. The rich fixture uses the placeholder edge pool
-    // synthesized by constructors, so we assert the placeholder is present
-    // and coherent — per-class values land in 39-3.
-    assert!(result.edge > 0, "edge must be populated");
-    assert_eq!(result.edge, result.max_edge, "fresh character at full edge");
+    // Story 39-2: edge/max_edge replace hp/max_hp/ac. Fixture values:
+    // current=38, max=42 (base_max=42).
+    assert_eq!(result.edge, 38, "edge.current must be extracted");
+    assert_eq!(result.max_edge, 42, "edge.max must be extracted");
 }
 
 #[test]
@@ -507,10 +513,9 @@ fn end_to_end_save_load_extract_roundtrip() {
     assert_eq!(state.character_name.as_str(), "Kael Stormwind");
     assert_eq!(state.level, 5);
     assert_eq!(state.xp, 1200);
-    // Story 39-2: hp/max_hp/ac replaced by edge/max_edge; values flow from
-    // the placeholder edge pool in the constructor.
-    assert!(state.edge > 0);
-    assert_eq!(state.edge, state.max_edge);
+    // Story 39-2: edge/max_edge replace hp/max_hp/ac. Fixture: 38/42.
+    assert_eq!(state.edge, 38);
+    assert_eq!(state.max_edge, 42);
     assert_eq!(state.inventory.items.len(), 3);
     assert_eq!(state.inventory.gold, 150);
     assert_eq!(state.known_facts.len(), 4);

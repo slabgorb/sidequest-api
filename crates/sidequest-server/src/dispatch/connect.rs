@@ -2666,7 +2666,9 @@ pub(crate) async fn dispatch_character_creation(
                                             xp: 0,
                                             statuses: vec![],
                                             inventory: sidequest_game::Inventory::default(),
-                                            edge: sidequest_game::creature_core::placeholder_edge_pool(),
+                                            edge:
+                                                sidequest_game::creature_core::placeholder_edge_pool(
+                                                ),
                                             acquired_advancements: vec![],
                                         },
                                         backstory: sidequest_protocol::NonBlankString::new("n/a")

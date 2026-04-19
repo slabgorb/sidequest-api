@@ -12,6 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::combatant::Combatant;
 use crate::inventory::Inventory;
@@ -172,6 +173,46 @@ impl EdgePool {
     }
 }
 
+impl CreatureCore {
+    /// Apply an edge delta to this creature's composure pool and emit
+    /// the canonical `creature.hp_delta` WatcherEvent + tracing span.
+    ///
+    /// Story 39-2: replaces the deleted `apply_hp_delta`. Story 39-4 wires
+    /// dispatch-level `edge_delta` routing; this method is the per-creature
+    /// mutation point that every caller should route through so the GM
+    /// panel observes the composure change. The event name is retained as
+    /// `creature.hp_delta` for dashboard continuity — 39-7 renames it
+    /// alongside the wire rename.
+    pub fn apply_edge_delta(&mut self, delta: i32) -> DeltaResult {
+        let old_current = self.edge.current;
+        let result = self.edge.apply_delta(delta);
+        let new_current = self.edge.current;
+        let clamped = new_current != old_current.saturating_add(delta);
+
+        WatcherEventBuilder::new("creature", WatcherEventType::StateTransition)
+            .field("action", "hp_delta")
+            .field("name", self.name.as_str())
+            .field("old_hp", old_current)
+            .field("new_hp", new_current)
+            .field("delta", delta)
+            .field("max_hp", self.edge.max)
+            .field("clamped", clamped)
+            .send();
+
+        let span = tracing::info_span!(
+            "creature.hp_delta",
+            name = %self.name,
+            old_hp = old_current,
+            new_hp = new_current,
+            delta = delta,
+            clamped = clamped,
+        );
+        let _guard = span.enter();
+
+        result
+    }
+}
+
 impl Combatant for CreatureCore {
     fn name(&self) -> &str {
         self.name.as_str()
@@ -264,7 +305,9 @@ mod tests {
     #[test]
     fn placeholder_edge_pool_has_on_resolution_trigger() {
         let pool = placeholder_edge_pool();
-        assert!(pool.recovery_triggers.contains(&RecoveryTrigger::OnResolution));
+        assert!(pool
+            .recovery_triggers
+            .contains(&RecoveryTrigger::OnResolution));
         assert_eq!(pool.base_max, PLACEHOLDER_EDGE_BASE_MAX);
     }
 }
