@@ -52,7 +52,7 @@
 
 use std::time::{Duration, Instant};
 
-use sidequest_protocol::{DiceRequestPayload, DieSides, DieSpec};
+use sidequest_protocol::{types::Stat, DiceRequestPayload, DieSides, DieSpec};
 use sidequest_server::shared_session::SharedGameSession;
 use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEventType};
 
@@ -70,7 +70,7 @@ fn dice_request(request_id: &str) -> DiceRequestPayload {
             count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
         }],
         modifier: 2,
-        stat: "dexterity".to_string(),
+        stat: Stat::new("dexterity").expect("literal 'dexterity' is a valid stat"),
         difficulty: std::num::NonZeroU32::new(15).expect("15 is nonzero"),
         context: "Defend roll — nat 20 hunting grounds".to_string(),
     }
@@ -173,7 +173,7 @@ fn duplicate_request_id_with_different_payload_emits_warning_event() {
 
     // Build a conflicting payload: same id, different stat/context.
     let mut mutated = original.clone();
-    mutated.stat = "wisdom".to_string();
+    mutated.stat = Stat::new("wisdom").expect("literal 'wisdom' is a valid stat");
     mutated.context = "Replayed from a stale session".to_string();
     ss.insert_pending_dice_request(mutated);
 
@@ -183,7 +183,11 @@ fn duplicate_request_id_with_different_payload_emits_warning_event() {
         .pending_dice_requests
         .get("req-dup")
         .expect("original must still be present");
-    assert_eq!(stored.stat, "dexterity", "duplicate must not overwrite");
+    assert_eq!(
+        stored.stat.as_str(),
+        "DEXTERITY",
+        "duplicate must not overwrite"
+    );
 
     // And a loud signal must have hit the GM panel.
     let mut matched = None;

@@ -2500,7 +2500,9 @@ pub(crate) async fn dispatch_character_creation(
                     // The opening-turn `compose_responses` call above emits a
                     // PARTY_STATUS whose `sheet` facet is None, because the
                     // acting player hasn't been inserted into the shared
-                    // session yet (that happens a few hundred lines below).
+                    // session yet (that happens ~600 lines below, in the
+                    // "Add player to shared session and broadcast PARTY_STATUS"
+                    // block).
                     // Without a populated sheet, App.tsx's characterSheet
                     // setter skips the update and the Character tab stays
                     // blank until the first real player-action turn.
@@ -2554,7 +2556,8 @@ pub(crate) async fn dispatch_character_creation(
                         .field("character_name", character.core.name.as_str())
                         .field("genre", session.genre_slug().unwrap_or(""))
                         .field("world", session.world_slug().unwrap_or(""))
-                        .field("has_sheet", true)
+                        .field("sheet_class", character.char_class.as_str())
+                        .field("inventory_count", inventory.carried().count())
                         .send();
 
                     // Emit the character's backstory as a prose narration so
