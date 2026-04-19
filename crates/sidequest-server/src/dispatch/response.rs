@@ -220,6 +220,65 @@ pub(super) async fn build_response_messages(
             None => (None, None, None),
         };
     let image_populated_at_emission = image_url.is_some();
+
+    // Story 37-28 — save-scoped image persistence via `persist_scrapbook_image`.
+    //
+    // The render pipeline serves images from the global `~/.sidequest/renders/`
+    // pool via `/api/renders/{filename}`. That URL survives session resume in
+    // the `scrapbook_entries` row, but the file it points to can be cleaned,
+    // orphaned by cross-machine save transfer, or overwritten by a later
+    // render. Copy the file into a save-scoped subtree (via
+    // `sidequest_game::persist_scrapbook_image`) and rewrite the URL to
+    // `/api/scrapbook/{genre}/{world}/{player}/{filename}` BEFORE the DB
+    // INSERT (see the `append_scrapbook_entry` call below) so the persisted
+    // row references a durable, save-local path.
+    //
+    // On any failure we emit a loud OTEL ValidationWarning (no silent
+    // fallback, per CLAUDE.md) and keep the original `/api/renders/` URL —
+    // the resume-side existence check will catch a dangling file later.
+    let image_url = if let Some(original_url) = image_url {
+        if ctx.genre_slug.is_empty() || ctx.world_slug.is_empty() {
+            Some(original_url)
+        } else {
+            match rewrite_scrapbook_image_url(
+                original_url.as_str(),
+                ctx.state.save_dir(),
+                ctx.genre_slug,
+                ctx.world_slug,
+                ctx.player_name_for_save,
+            ) {
+                Ok(rewritten) => match NonBlankString::new(&rewritten) {
+                    Ok(nbs) => Some(nbs),
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            rewritten = %rewritten,
+                            "scrapbook.image_rewrite_url_blank — keeping original renders URL"
+                        );
+                        Some(original_url)
+                    }
+                },
+                Err(e) => {
+                    WatcherEventBuilder::new("scrapbook", WatcherEventType::ValidationWarning)
+                        .field("event", "scrapbook.image_persist_failed")
+                        .field("turn_id", turn_id)
+                        .field("original_url", original_url.as_str())
+                        .field("error", e.to_string())
+                        .send();
+                    tracing::error!(
+                        error = %e,
+                        url = %original_url.as_str(),
+                        turn_id,
+                        "scrapbook.image_persist_failed — keeping original /api/renders/ URL"
+                    );
+                    Some(original_url)
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     let location_nbs = nbs_ctx(ctx.current_location.as_str(), "current_location");
     let scrapbook_payload = scrapbook::build_scrapbook_entry(
         turn_id,
@@ -611,4 +670,62 @@ pub(super) fn build_confrontation_message(
         },
         player_id: player_id.to_string(),
     }
+}
+
+/// Resolve a scrapbook render URL to its backing file on disk and mirror it
+/// into the save-scoped scrapbook subtree. Returns the new `/api/scrapbook/...`
+/// URL on success (story 37-28).
+///
+/// Accepted `original_url` forms:
+/// - `/api/renders/{filename}` — the default output from the render pipeline;
+///   resolved against `SIDEQUEST_OUTPUT_DIR` or `~/.sidequest/renders`.
+/// - `/api/scrapbook/{...}/{filename}` — already save-scoped; returned
+///   unchanged so repeated passes are idempotent.
+///
+/// Any other URL shape (absolute `http://`, unrecognized prefix) returns an
+/// error without copying — the caller logs loudly and keeps the original URL.
+fn rewrite_scrapbook_image_url(
+    original_url: &str,
+    save_dir: &std::path::Path,
+    genre: &str,
+    world: &str,
+    player: &str,
+) -> Result<String, std::io::Error> {
+    // Idempotence: already save-scoped URLs need no action.
+    if original_url.starts_with("/api/scrapbook/") {
+        return Ok(original_url.to_string());
+    }
+
+    let filename = original_url.strip_prefix("/api/renders/").ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "rewrite_scrapbook_image_url: unsupported URL prefix (expected \
+                     /api/renders/ or /api/scrapbook/): {}",
+                original_url
+            ),
+        )
+    })?;
+
+    // Resolve the source path the same way the render broadcaster does.
+    let renders_dir = std::env::var("SIDEQUEST_OUTPUT_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+                .join(".sidequest")
+                .join("renders")
+        });
+    let src_path = renders_dir.join(filename);
+
+    sidequest_game::persist_scrapbook_image(save_dir, genre, world, player, &src_path)?;
+
+    // URL-encoding note: `genre`, `world`, and `player` are slug-like
+    // identifiers elsewhere in dispatch (they already key the SQLite save
+    // path). The filename is a daemon-generated `render_{uuid}.png`. No
+    // component needs percent-encoding at this seam; if that changes,
+    // replace this with a proper url-encoder call.
+    Ok(format!(
+        "/api/scrapbook/{}/{}/{}/{}",
+        genre, world, player, filename
+    ))
 }

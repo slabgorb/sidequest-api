@@ -369,6 +369,10 @@ pub struct AppState {
 struct AppStateInner {
     game_service: Box<dyn GameService>,
     genre_packs_path: PathBuf,
+    /// Root directory for save files. Also hosts the save-scoped scrapbook
+    /// image subtree at `{save_dir}/scrapbook/{genre}/{world}/{player}/`
+    /// (story 37-28). Served at `/api/scrapbook/` via `build_router`.
+    save_dir: PathBuf,
     genre_loader: GenreLoader,
     genre_cache: GenreCache,
     connections: Mutex<HashMap<PlayerId, mpsc::Sender<GameMessage>>>,
@@ -588,7 +592,7 @@ impl AppState {
             },
         );
 
-        let persistence = sidequest_game::PersistenceWorker::spawn(save_dir);
+        let persistence = sidequest_game::PersistenceWorker::spawn(save_dir.clone());
 
         let genre_loader = GenreLoader::new(vec![genre_packs_path.clone()]);
         let genre_cache = GenreCache::new();
@@ -597,6 +601,7 @@ impl AppState {
             inner: Arc::new(AppStateInner {
                 game_service,
                 genre_packs_path,
+                save_dir,
                 genre_loader,
                 genre_cache,
                 connections: Mutex::new(HashMap::new()),
@@ -726,6 +731,13 @@ impl AppState {
     /// Path to genre packs directory.
     pub fn genre_packs_path(&self) -> &Path {
         &self.inner.genre_packs_path
+    }
+
+    /// Root save directory. Hosts the save-scoped scrapbook image subtree
+    /// (`{save_dir}/scrapbook/{genre}/{world}/{player}/`) introduced by
+    /// story 37-28. Served at `/api/scrapbook/` via `build_router`.
+    pub fn save_dir(&self) -> &Path {
+        &self.inner.save_dir
     }
 
     /// Record that a `lora_trigger_missing` warning has fired for this
@@ -1273,6 +1285,25 @@ pub fn build_router(state: AppState) -> Router {
         });
     let renders_assets = ServeDir::new(&renders_dir);
 
+    // Serve save-scoped scrapbook images at /api/scrapbook/{genre}/{world}/{player}/{filename}
+    // (story 37-28). Rooted under the save directory so the images travel with
+    // the .db file when a save is copied between machines, and are immune to
+    // cleanups of the global `~/.sidequest/renders/` pool. The tree is populated
+    // by `dispatch/response.rs` at scrapbook-capture time via
+    // `sidequest_game::persist_scrapbook_image`.
+    let scrapbook_dir = state.save_dir().join("scrapbook");
+    // Create the directory up-front so ServeDir does not 404 on an empty save
+    // dir before the first scrapbook capture. If creation fails we log loudly
+    // and let ServeDir serve 404s — no silent fallback to another path.
+    if let Err(e) = std::fs::create_dir_all(&scrapbook_dir) {
+        tracing::error!(
+            error = %e,
+            path = %scrapbook_dir.display(),
+            "scrapbook_dir_create_failed — /api/scrapbook will 404 until the directory exists"
+        );
+    }
+    let scrapbook_assets = ServeDir::new(&scrapbook_dir);
+
     let mut app: Router<AppState> = Router::new()
         .route("/api/genres", get(list_genres))
         .route("/api/sessions", get(list_sessions))
@@ -1280,7 +1311,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(watcher::ws_watcher_handler))
         .nest_service("/genre", genre_assets)
-        .nest_service("/api/renders", renders_assets);
+        .nest_service("/api/renders", renders_assets)
+        .nest_service("/api/scrapbook", scrapbook_assets);
 
     // Dev scene harness — only mounted when DEV_SCENES=1 is set. Without the
     // env var, /dev/scene/:name returns 404 (route not registered). Do NOT
