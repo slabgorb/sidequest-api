@@ -1371,9 +1371,8 @@ impl CharacterBuilder {
         // story lands.
         let _ = (base_hp, ac);
         let edge = if let Some(ref cfg) = self.edge_config {
-            let pool = crate::creature_core::edge_pool_from_config(cfg, class_str).map_err(
-                |e| BuilderError::EdgeConfigMissingClass(e.class),
-            )?;
+            let pool = crate::creature_core::edge_pool_from_config(cfg, class_str)
+                .map_err(|e| BuilderError::EdgeConfigMissingClass(e.into_class()))?;
             // OTEL: chargen.edge_seeded — GM panel confirms YAML-driven
             // edge sizing fired (vs the placeholder fallback below).
             WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
@@ -1385,8 +1384,9 @@ impl CharacterBuilder {
                 .send();
             pool
         } else {
-            // Unmigrated pack — legacy placeholder. Emit a Warn-shaped OTEL
-            // event so the GM panel surfaces packs still on phantom HP.
+            // Unmigrated pack — legacy placeholder. Emit at Warn severity so
+            // the GM panel surfaces packs still on phantom HP distinct from
+            // the Info-level success path above.
             WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
                 .field("action", "edge_seeded")
                 .field("source", "placeholder")
@@ -1396,6 +1396,7 @@ impl CharacterBuilder {
                     crate::creature_core::PLACEHOLDER_EDGE_BASE_MAX as i64,
                 )
                 .field("reason", "genre pack has no edge_config")
+                .severity(Severity::Warn)
                 .send();
             crate::creature_core::placeholder_edge_pool()
         };

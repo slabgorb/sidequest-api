@@ -10,7 +10,7 @@
 //!      `default_ac` / `stat_display_fields` and a populated `edge_config`.
 //!      This is the wiring test for the content migration.
 
-use sidequest_genre::{EdgeConfig, RulesConfig};
+use sidequest_genre::{CrossingDirection, EdgeConfig, RecoveryBehaviour, RulesConfig};
 use std::path::PathBuf;
 
 /// Locate the live heavy_metal rules.yaml so the wiring test asserts
@@ -59,11 +59,18 @@ display_fields: [edge, max_edge, composure_state]
     let cfg: EdgeConfig = serde_yaml::from_str(yaml).expect("EdgeConfig parses");
     assert_eq!(cfg.base_max_by_class.get("Fighter").copied(), Some(6));
     assert_eq!(cfg.base_max_by_class.get("Wizard").copied(), Some(4));
-    assert_eq!(cfg.recovery_defaults.on_resolution.as_deref(), Some("full"));
+    assert_eq!(
+        cfg.recovery_defaults.on_resolution,
+        Some(RecoveryBehaviour::Full)
+    );
     assert_eq!(cfg.recovery_defaults.between_back_to_back, Some(0));
     assert_eq!(cfg.thresholds.len(), 2);
     assert_eq!(cfg.thresholds[0].at, 1);
     assert_eq!(cfg.thresholds[0].event_id, "edge_strained");
+    assert_eq!(
+        cfg.thresholds[0].direction,
+        Some(CrossingDirection::CrossingDown)
+    );
     assert_eq!(cfg.thresholds[1].at, 0);
     assert_eq!(cfg.display_fields, vec!["edge", "max_edge", "composure_state"]);
 }
@@ -83,16 +90,23 @@ allowed_classes: [Fighter]
 #[test]
 fn heavy_metal_rules_yaml_migrated_to_edge_config() {
     // Wiring test: the live sidequest-content heavy_metal/rules.yaml must
-    // parse cleanly with the new schema. Skipped when sidequest-content is
-    // not co-located (CI/api-only checkouts) — the schema unit tests above
-    // still run.
-    let Some(path) = heavy_metal_rules_path() else {
-        eprintln!(
-            "skipping heavy_metal wiring assertion: sidequest-content checkout not found \
-             adjacent to sidequest-api"
-        );
-        return;
-    };
+    // parse cleanly with the new schema. This test is BLOCKING — the whole
+    // point of the test is to catch regressions in the authored content,
+    // so a silent skip would defeat its purpose. In api-only checkouts
+    // (CI, minimal clones) the test fails with an actionable message
+    // pointing at the expected path. If you need to run sidequest-api
+    // tests without sidequest-content co-located, clone the content repo
+    // as a sibling or set SIDEQUEST_CONTENT_PATH.
+    let path = heavy_metal_rules_path().unwrap_or_else(|| {
+        panic!(
+            "sidequest-content checkout not found adjacent to sidequest-api. \
+             Expected at ../sidequest-content/genre_packs/heavy_metal/rules.yaml \
+             (or ../sidequest-content-39-3/... while this branch is in flight). \
+             Clone slabgorb/sidequest-content alongside sidequest-api to run the \
+             wiring test. The schema unit tests above do not validate authored \
+             content — they only validate the types."
+        )
+    });
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let rules: RulesConfig = serde_yaml::from_str(&raw)

@@ -44,23 +44,25 @@ pub fn placeholder_edge_pool() -> EdgePool {
 /// Intentionally loud — matches the "no silent fallbacks" project rule. A
 /// heavy_metal character whose class is missing from the config fails chargen
 /// rather than silently reverting to the placeholder.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EdgeConfigMissingClassError {
-    /// Class name that was missing from `base_max_by_class`.
-    pub class: String,
-}
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("edge_config.base_max_by_class missing entry for class '{0}'")]
+pub struct EdgeConfigMissingClassError(String);
 
-impl std::fmt::Display for EdgeConfigMissingClassError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "edge_config.base_max_by_class missing entry for class '{}'",
-            self.class
-        )
+impl EdgeConfigMissingClassError {
+    /// Construct an error for the given missing class.
+    pub fn new(class: impl Into<String>) -> Self {
+        Self(class.into())
+    }
+    /// The class name that was missing from `base_max_by_class`.
+    pub fn class(&self) -> &str {
+        &self.0
+    }
+    /// Consume the error and return the class name (used by callers that
+    /// rewrap the error into a domain-specific variant).
+    pub fn into_class(self) -> String {
+        self.0
     }
 }
-
-impl std::error::Error for EdgeConfigMissingClassError {}
 
 /// Build a genre-authored `EdgePool` from an `EdgeConfig` and a class name.
 ///
@@ -78,9 +80,7 @@ pub fn edge_pool_from_config(
         .base_max_by_class
         .get(class)
         .copied()
-        .ok_or_else(|| EdgeConfigMissingClassError {
-            class: class.to_string(),
-        })?;
+        .ok_or_else(|| EdgeConfigMissingClassError::new(class))?;
     let thresholds = edge_config
         .thresholds
         .iter()

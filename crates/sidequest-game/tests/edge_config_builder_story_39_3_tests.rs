@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use sidequest_game::builder::{BuilderError, CharacterBuilder};
 use sidequest_game::combatant::Combatant;
 use sidequest_genre::{
-    CharCreationChoice, CharCreationScene, EdgeConfig, EdgeRecoveryDefaults, EdgeThresholdDecl,
-    MechanicalEffects, RulesConfig,
+    CharCreationChoice, CharCreationScene, CrossingDirection, EdgeConfig, EdgeRecoveryDefaults,
+    EdgeThresholdDecl, MechanicalEffects, RecoveryBehaviour, RulesConfig,
 };
 
 fn heavy_metal_edge_config() -> EdgeConfig {
@@ -25,8 +25,8 @@ fn heavy_metal_edge_config() -> EdgeConfig {
             ("Wizard".to_string(), 4),
         ]),
         recovery_defaults: EdgeRecoveryDefaults {
-            on_resolution: Some("full".into()),
-            on_long_rest: Some("full".into()),
+            on_resolution: Some(RecoveryBehaviour::Full),
+            on_long_rest: Some(RecoveryBehaviour::Full),
             between_back_to_back: Some(0),
         },
         thresholds: vec![
@@ -34,16 +34,17 @@ fn heavy_metal_edge_config() -> EdgeConfig {
                 at: 1,
                 event_id: "edge_strained".into(),
                 narrator_hint: "one exchange from breaking".into(),
-                direction: Some("crossing_down".into()),
+                direction: Some(CrossingDirection::CrossingDown),
             },
             EdgeThresholdDecl {
                 at: 0,
                 event_id: "composure_break".into(),
                 narrator_hint: "the ledger turns".into(),
-                direction: Some("crossing_down".into()),
+                direction: Some(CrossingDirection::CrossingDown),
             },
         ],
         display_fields: vec!["edge".into(), "max_edge".into(), "composure_state".into()],
+        ..Default::default()
     }
 }
 
@@ -129,6 +130,13 @@ fn builder_seeds_wizard_edge_from_config() {
     assert_eq!(
         character.core.edge.base_max, 4,
         "Wizard base_max reflects lower edge capacity"
+    );
+    assert_eq!(character.core.edge.current, 4, "starts at full composure");
+    assert_eq!(character.core.edge.max, 4);
+    assert_eq!(
+        character.core.edge.thresholds.len(),
+        2,
+        "Wizard pool carries both authored thresholds"
     );
 }
 
