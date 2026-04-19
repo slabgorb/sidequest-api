@@ -443,6 +443,89 @@ async fn interpolation_emits_state_transition_event() {
     );
 }
 
+/// Playtest 2026-04-19 regression: genres without a name-entry scene
+/// (heavy_metal/evrópí, caverns_and_claudes) must still be able to render
+/// `{name}` placeholders in scene narration. The lobby supplies the player
+/// name via `with_lobby_name`; the interpolator must use it as a fallback
+/// when `character_name()` returns None.
+#[test]
+fn lobby_name_resolves_name_placeholder_when_no_name_scene_exists() {
+    let scenes = scenes_with_placeholders();
+    let rules = rules();
+    let mut builder = CharacterBuilder::new(scenes, &rules, None).with_lobby_name("Mira");
+    builder.apply_choice(0).expect("class choice applies");
+
+    let msg = builder.to_scene_message("player-1");
+    let prompt = extract_prompt(&msg);
+
+    assert!(
+        prompt.contains("Mira"),
+        "lobby name should fill {{name}} when no name-entry scene exists: {prompt:?}"
+    );
+    assert!(
+        !prompt.contains("Welcome aboard, ."),
+        "no leading-comma artefact from empty {{name}}: {prompt:?}"
+    );
+}
+
+/// A name typed into a freeform name-entry scene wins over the lobby name.
+/// Keeps the (scene > lobby) precedence consistent with
+/// `render_confirmation_summary`.
+#[test]
+fn scene_name_takes_precedence_over_lobby_name() {
+    let scenes = vec![
+        CharCreationScene {
+            id: "name_entry".to_string(),
+            title: "Name".to_string(),
+            narration: "What is your name?".to_string(),
+            choices: vec![],
+            allows_freeform: Some(true),
+            loading_text: None,
+            hook_prompt: None,
+            mechanical_effects: None,
+        },
+        CharCreationScene {
+            id: "greet".to_string(),
+            title: "Greet".to_string(),
+            narration: "Hello, {name}.".to_string(),
+            choices: vec![],
+            allows_freeform: Some(true),
+            loading_text: None,
+            hook_prompt: None,
+            mechanical_effects: None,
+        },
+    ];
+    let rules = rules();
+    let mut builder = CharacterBuilder::new(scenes, &rules, None).with_lobby_name("LobbyMira");
+    builder
+        .apply_freeform("SceneMira")
+        .expect("name scene applies");
+
+    let msg = builder.to_scene_message("player-1");
+    let prompt = extract_prompt(&msg);
+    assert_eq!(prompt, "Hello, SceneMira.");
+}
+
+/// Empty / whitespace-only lobby names must not silently pretend a name
+/// exists. They normalize to None and the placeholder behaves as before
+/// the fix (empty substitution + Warn).
+#[test]
+fn empty_or_whitespace_lobby_name_normalizes_to_none() {
+    let scenes = scenes_with_placeholders();
+    let rules = rules();
+    let mut builder = CharacterBuilder::new(scenes, &rules, None).with_lobby_name("   ");
+    builder.apply_choice(0).expect("class choice applies");
+
+    let msg = builder.to_scene_message("player-1");
+    let prompt = extract_prompt(&msg);
+    assert!(
+        !prompt.contains("{name}"),
+        "literal {{name}} must never reach the client: {prompt:?}"
+    );
+    // Substitution should produce empty, leaving "Welcome aboard, ."
+    assert!(prompt.contains("Welcome aboard, "));
+}
+
 /// Drain every currently-buffered event from the broadcast receiver.
 ///
 /// `broadcast::Sender::send` is synchronous and returns after the event is
