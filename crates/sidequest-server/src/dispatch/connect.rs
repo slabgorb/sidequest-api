@@ -1094,6 +1094,7 @@ pub(crate) async fn dispatch_connect(
                                 world,
                                 state,
                                 player_id,
+                                pname,
                             )
                             .await,
                         );
@@ -1120,6 +1121,7 @@ pub(crate) async fn dispatch_connect(
                                 world,
                                 state,
                                 player_id,
+                                pname,
                             )
                             .await,
                         );
@@ -1147,6 +1149,7 @@ pub(crate) async fn dispatch_connect(
                         world,
                         state,
                         player_id,
+                        pname,
                     )
                     .await,
                 );
@@ -1190,6 +1193,7 @@ pub(crate) async fn start_character_creation(
     world_slug: &str,
     state: &AppState,
     player_id: &str,
+    lobby_name: &str,
 ) -> Vec<GameMessage> {
     let builder = &mut *ictx.builder;
     let trope_defs_out = &mut *ictx.trope_defs_out;
@@ -1368,6 +1372,10 @@ pub(crate) async fn start_character_creation(
     } else {
         b
     };
+    // Thread the lobby-provided player name into the builder so scene narration
+    // templates with `{name}` resolve in genres without a name-entry scene
+    // (playtest 2026-04-19 seal narration bug).
+    let b = b.with_lobby_name(lobby_name);
 
     // Display-only scenes (no choices, no freeform) are now first-class:
     // they emit CHARACTER_CREATION messages with input_type="continue" and

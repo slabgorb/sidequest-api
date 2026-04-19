@@ -248,6 +248,11 @@ pub struct CharacterBuilder {
     /// When set AND a scene declares `equipment_generation: random_table`,
     /// the builder rolls one item per slot (or `rolls_per_slot` override).
     equipment_tables: Option<EquipmentTables>,
+    /// Lobby-provided player name (from connect payload). Fallback source for
+    /// `{name}` interpolation in scene narration when the genre has no
+    /// name-entry scene (e.g. `heavy_metal`, `caverns_and_claudes`). Matches
+    /// the scene > lobby precedence used by `render_confirmation_summary`.
+    lobby_name: Option<String>,
 }
 
 /// Return every `{...}` substring in `rendered` whose key is not one of
@@ -371,7 +376,22 @@ impl CharacterBuilder {
             rolled_stats,
             backstory_tables,
             equipment_tables: None,
+            lobby_name: None,
         }
+    }
+
+    /// Attach the lobby-provided player name. Used as a fallback for the
+    /// `{name}` placeholder in scene narration when the genre has no
+    /// name-entry scene. Fluent setter; chain after `new()` / `try_new()`.
+    pub fn with_lobby_name<S: Into<String>>(mut self, name: S) -> Self {
+        let n = name.into();
+        let trimmed = n.trim();
+        self.lobby_name = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        self
     }
 
     /// Attach an `EquipmentTables` to this builder. Fluent setter — chain
@@ -562,7 +582,12 @@ impl CharacterBuilder {
             return text.to_string();
         }
         let acc = self.accumulated();
-        let name = self.character_name().unwrap_or("");
+        // Scene-entered name wins; lobby name is the fallback for genres
+        // without a name-entry scene. Matches render_confirmation_summary.
+        let name = self
+            .character_name()
+            .or(self.lobby_name.as_deref())
+            .unwrap_or("");
         let class = acc.class_hint.as_deref().unwrap_or("");
         let race = acc.race_hint.as_deref().unwrap_or("");
 
