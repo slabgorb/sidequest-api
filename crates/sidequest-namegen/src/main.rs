@@ -423,16 +423,81 @@ fn generate_npc(
 ) -> NpcBlock {
     let corpus_dir = genre_dir.join("corpus");
 
+    // Layered content model: cultures and archetypes may live at genre tier,
+    // world tier, or both. Prefer world-tier if present (override semantics,
+    // per World.archetypes docstring and the interim empty-genre-yaml pattern
+    // in heavy_metal), else fall back to genre-tier.
+    let world_opt: Option<&sidequest_genre::World> = cli
+        .world
+        .as_deref()
+        .and_then(|slug| pack.worlds.get(slug));
+    let (effective_cultures, cultures_source): (Vec<&sidequest_genre::Culture>, &'static str) =
+        match world_opt {
+            Some(w) if !w.cultures.is_empty() => (w.cultures.iter().collect(), "world"),
+            _ => (pack.cultures.iter().collect(), "genre"),
+        };
+    let (effective_archetypes, archetypes_source): (Vec<&NpcArchetype>, &'static str) =
+        match world_opt {
+            Some(w) if !w.archetypes.is_empty() => (w.archetypes.iter().collect(), "world"),
+            _ => (pack.archetypes.iter().collect(), "genre"),
+        };
+
+    // Fail loudly if the effective pool is empty — per No Silent Fallbacks rule.
+    // A panic with "cannot sample empty range" would hide the real problem from
+    // both the GM panel and the player.
+    if effective_cultures.is_empty() {
+        eprintln!(
+            "sidequest-namegen: no cultures available for genre '{}'{} — \
+             cultures.yaml is empty at both genre and world tiers. \
+             Check genre_packs/{}/cultures.yaml and, if --world is passed, \
+             genre_packs/{}/worlds/<slug>/cultures.yaml.",
+            cli.genre,
+            cli.world
+                .as_deref()
+                .map(|w| format!(" world '{}'", w))
+                .unwrap_or_default(),
+            cli.genre,
+            cli.genre,
+        );
+        std::process::exit(2);
+    }
+    if effective_archetypes.is_empty() {
+        eprintln!(
+            "sidequest-namegen: no archetypes available for genre '{}'{} — \
+             archetypes.yaml is empty at both genre and world tiers. \
+             Check genre_packs/{}/archetypes.yaml and, if --world is passed, \
+             genre_packs/{}/worlds/<slug>/archetypes.yaml.",
+            cli.genre,
+            cli.world
+                .as_deref()
+                .map(|w| format!(" world '{}'", w))
+                .unwrap_or_default(),
+            cli.genre,
+            cli.genre,
+        );
+        std::process::exit(2);
+    }
+
+    // Emit the tier-source decision for GM-panel visibility. Writing to stderr
+    // keeps stdout clean JSON for the caller; the dispatcher captures stderr.
+    eprintln!(
+        "namegen.tier_sources cultures={} archetypes={} (world={})",
+        cultures_source,
+        archetypes_source,
+        cli.world.as_deref().unwrap_or("<none>"),
+    );
+
     // Select culture
-    let culture = if let Some(ref name) = cli.culture {
-        pack.cultures
+    let culture: &sidequest_genre::Culture = if let Some(ref name) = cli.culture {
+        effective_cultures
             .iter()
+            .copied()
             .find(|c| c.name.as_str().eq_ignore_ascii_case(name))
             .unwrap_or_else(|| {
                 eprintln!(
                     "Culture '{}' not found. Available: {}",
                     name,
-                    pack.cultures
+                    effective_cultures
                         .iter()
                         .map(|c| c.name.as_str())
                         .collect::<Vec<_>>()
@@ -441,28 +506,29 @@ fn generate_npc(
                 std::process::exit(1);
             })
     } else {
-        &pack.cultures[rng.random_range(0..pack.cultures.len())]
+        effective_cultures[rng.random_range(0..effective_cultures.len())]
     };
 
     // Resolve three-axis archetype
     let (jungian_id, rpg_role_id, npc_role_id, resolved_archetype, resolution_source) =
         resolve_axes(pack, cli, rng);
 
-    // Find the genre-pack NpcArchetype for personality/inventory/etc.
-    // If we resolved through the new pipeline, try matching by resolved name first,
-    // then fall back to --archetype flag, then random.
-    let archetype = pack
-        .archetypes
+    // Find the NpcArchetype for personality/inventory/etc. from the effective
+    // pool (world-tier if present, else genre-tier). Prefer the axis-resolved
+    // name; else the --archetype flag; else random from the pool.
+    let archetype: &NpcArchetype = effective_archetypes
         .iter()
+        .copied()
         .find(|a| a.name.as_str().eq_ignore_ascii_case(&resolved_archetype))
         .or_else(|| {
             cli.archetype.as_ref().and_then(|name| {
-                pack.archetypes
+                effective_archetypes
                     .iter()
+                    .copied()
                     .find(|a| a.name.as_str().eq_ignore_ascii_case(name))
             })
         })
-        .unwrap_or_else(|| &pack.archetypes[rng.random_range(0..pack.archetypes.len())]);
+        .unwrap_or_else(|| effective_archetypes[rng.random_range(0..effective_archetypes.len())]);
 
     // Generate name
     let result = sidequest_genre::names::build_from_culture(culture, &corpus_dir, rng);

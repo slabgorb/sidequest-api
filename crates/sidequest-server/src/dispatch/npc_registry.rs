@@ -56,8 +56,8 @@ pub(super) fn update_npc_registry(
                 let _guard = span.enter();
 
                 let namegen_result = ctx.state.namegen_binary_path().and_then(|binary| {
-                    let output = std::process::Command::new(binary)
-                        .arg("--genre-packs-path")
+                    let mut cmd = std::process::Command::new(binary);
+                    cmd.arg("--genre-packs-path")
                         .arg(ctx.state.genre_packs_path())
                         .arg("--genre")
                         .arg(ctx.genre_slug)
@@ -66,7 +66,17 @@ pub(super) fn update_npc_registry(
                             "unknown"
                         } else {
                             &npc.role
-                        })
+                        });
+                    // Pass the world so namegen can resolve world-tier cultures
+                    // and archetypes. The layered content model (see
+                    // genre_packs/heavy_metal/cultures.yaml header comment) puts
+                    // named cultures at the world tier; without --world, namegen
+                    // only sees the genre-tier list, which for some genres is
+                    // intentionally empty and panics on random_range(0..0).
+                    if !ctx.world_slug.is_empty() {
+                        cmd.arg("--world").arg(ctx.world_slug);
+                    }
+                    let output = cmd
                         .stdout(std::process::Stdio::piped())
                         .stderr(std::process::Stdio::piped())
                         .output()
