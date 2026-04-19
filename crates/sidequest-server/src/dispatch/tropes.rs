@@ -25,9 +25,9 @@ use super::DispatchContext;
 ///    logged, because the engine only invokes this helper for tropes it
 ///    believes are active, so a resolve miss signals a tag-typo, id/name
 ///    drift, or a trope pruned between tick and classify.
-fn classify_engagement_kind<'a>(
+fn classify_engagement_kind(
     trope_id: &str,
-    trope_defs: &'a [sidequest_genre::TropeDefinition],
+    trope_defs: &[sidequest_genre::TropeDefinition],
 ) -> Option<&'static str> {
     let def = match trope_defs
         .iter()
@@ -212,12 +212,7 @@ pub(crate) fn process_tropes(
         // "escalation" — a beat firing is progression advancing, not terminal
         // success/failure. Terminal outcomes fire at the auto-resolve site above.
         if let Some(kind) = classify_engagement_kind(&beat.trope_id, ctx.trope_defs) {
-            crate::emit_trope_engagement_outcome(
-                &beat.trope_id,
-                kind,
-                "escalation",
-                beat.beat.at,
-            );
+            crate::emit_trope_engagement_outcome(&beat.trope_id, kind, "escalation", beat.beat.at);
         }
     }
 

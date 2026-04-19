@@ -492,10 +492,7 @@ impl SharedGameSession {
     /// with the same id without resetting the aging clock, so a wedged
     /// request keeps advancing toward eventual surfacing on the GM
     /// panel rather than silently restarting its timer.
-    pub fn insert_pending_dice_request(
-        &mut self,
-        request: sidequest_protocol::DiceRequestPayload,
-    ) {
+    pub fn insert_pending_dice_request(&mut self, request: sidequest_protocol::DiceRequestPayload) {
         let request_id = request.request_id.clone();
         if let Some(existing) = self.pending_dice_requests.get(&request_id) {
             // Idempotent — preserve original payload and issued_at. The
@@ -513,19 +510,17 @@ impl SharedGameSession {
                     "insert_pending_dice_request: duplicate request_id with different payload — \
                      chokepoint bypass suspected or client replayed a stale id"
                 );
-                crate::WatcherEventBuilder::new(
-                    "dice",
-                    crate::WatcherEventType::ValidationWarning,
-                )
-                .severity(sidequest_telemetry::Severity::Warn)
-                .field("event", "dice_request.duplicate_id_mismatch")
-                .field("request_id", &request_id)
-                .field("rolling_player", &request.rolling_player_id)
-                .send();
+                crate::WatcherEventBuilder::new("dice", crate::WatcherEventType::ValidationWarning)
+                    .severity(sidequest_telemetry::Severity::Warn)
+                    .field("event", "dice_request.duplicate_id_mismatch")
+                    .field("request_id", &request_id)
+                    .field("rolling_player", &request.rolling_player_id)
+                    .send();
             }
             return;
         }
-        self.pending_dice_requests.insert(request_id.clone(), request);
+        self.pending_dice_requests
+            .insert(request_id.clone(), request);
         self.pending_dice_request_issued_at
             .insert(request_id, Instant::now());
     }

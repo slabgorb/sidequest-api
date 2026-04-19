@@ -1708,16 +1708,13 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         // so each surfaced request keeps aging until the client finally
         // responds. Clients dedupe on request_id (InlineDiceTray), so the
         // per-writer tick is safe under N connections.
-        const DICE_RETRY_CHECK_INTERVAL: std::time::Duration =
-            std::time::Duration::from_secs(5);
-        const DICE_REQUEST_TIMEOUT: std::time::Duration =
-            std::time::Duration::from_secs(30);
+        const DICE_RETRY_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+        const DICE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
         let mut dice_retry_ticker = tokio::time::interval(DICE_RETRY_CHECK_INTERVAL);
         // `MissedTickBehavior::Delay` keeps later ticks from bunching if the
         // executor falls behind (a burst of retries at once would double-emit
         // OTEL spans and defeat the deduplication contract).
-        dice_retry_ticker
-            .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        dice_retry_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // `tokio::time::interval` fires its first tick immediately. Consume
         // it now so the retry detector doesn't run at t=0 (before any
         // DiceRequest could possibly be pending) — the first real check
