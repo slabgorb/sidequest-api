@@ -28,7 +28,21 @@ pub const PLACEHOLDER_EDGE_BASE_MAX: i32 = 10;
 /// YAML-driven values). The pool starts at full composure, carries
 /// `OnResolution` as the default recovery trigger, and has no authored
 /// thresholds — those are content in 39-6.
+///
+/// HOTFIX (2026-04-19): this function is also wired in as the `#[serde(default)]`
+/// for `CreatureCore::edge` so pre-39-2 saves (which have no `edge` field and
+/// instead carry legacy `hp/max_hp/ac` on the character) can still load. The
+/// WARN below fires both on legacy-save deserialization AND on every new-
+/// character constructor path that hits the placeholder — that noise is
+/// intentional: it surfaces the 39-7 migration debt in the OTEL stream every
+/// time the shim is exercised. Remove the warn (and the serde default) when
+/// 39-7 lands a real HP→Edge migration at the persistence layer with a
+/// schema_version bump.
 pub fn placeholder_edge_pool() -> EdgePool {
+    tracing::warn!(
+        target: "sidequest_game::creature_core",
+        "placeholder_edge_pool synthesized — legacy-save compat shim or un-tuned constructor, pending 39-7 HP→Edge migration"
+    );
     EdgePool {
         current: PLACEHOLDER_EDGE_BASE_MAX,
         max: PLACEHOLDER_EDGE_BASE_MAX,
@@ -122,6 +136,13 @@ pub struct CreatureCore {
     pub statuses: Vec<String>,
     /// Composure pool — the HP analogue in epic 39. Stories 39-3/4/6
     /// tune thresholds, recovery triggers, and per-class base_max.
+    ///
+    /// Hotfix shim (2026-04-19): pre-39-2 saves have no `edge` field (they
+    /// carried `hp/max_hp/ac` on the character instead). The `#[serde(default)]`
+    /// synthesizes a placeholder so those saves load; 39-7 replaces this with
+    /// a real HP→Edge migration at the persistence layer plus a
+    /// `schema_version` bump, at which point this default should be removed.
+    #[serde(default = "placeholder_edge_pool")]
     pub edge: EdgePool,
     /// Advancement ids the creature has acquired (epic 39 mechanical
     /// progression). Populated by 39-8; stays empty at construction.
@@ -371,5 +392,30 @@ mod tests {
             .recovery_triggers
             .contains(&RecoveryTrigger::OnResolution));
         assert_eq!(pool.base_max, PLACEHOLDER_EDGE_BASE_MAX);
+    }
+
+    /// HOTFIX 2026-04-19: pre-39-2 saves carry `hp/max_hp/ac` on the
+    /// character and have no `edge` field. Deserialization must succeed via
+    /// the `#[serde(default = "placeholder_edge_pool")]` shim; 39-7 replaces
+    /// this with a real HP→Edge migration at the persistence layer.
+    #[test]
+    fn legacy_save_without_edge_field_deserializes() {
+        let legacy_json = serde_json::json!({
+            "name": "Rux",
+            "description": "A half-orc wanderer",
+            "personality": "stoic",
+            "level": 3,
+            "xp": 120,
+            "inventory": { "items": [], "gold": 0 },
+            "statuses": [],
+            "hp": 18,
+            "max_hp": 24,
+            "ac": 14
+        });
+        let core: CreatureCore = serde_json::from_value(legacy_json)
+            .expect("legacy save without edge field should deserialize via shim");
+        assert_eq!(core.edge.base_max, PLACEHOLDER_EDGE_BASE_MAX);
+        assert_eq!(core.edge.current, PLACEHOLDER_EDGE_BASE_MAX);
+        assert!(core.acquired_advancements.is_empty());
     }
 }
