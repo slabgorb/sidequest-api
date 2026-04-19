@@ -3324,7 +3324,12 @@ fn resolve_scrapbook_image_path(
     if let Some(tail) = url.strip_prefix("/api/scrapbook/") {
         let mut path = save_dir.join("scrapbook");
         for segment in tail.split('/') {
-            if segment.is_empty() {
+            // Reviewer round-trip 1, finding 1: reject empty / `..` / `.`
+            // segments. A stored image_url of `/api/scrapbook/../../.ssh/id_rsa`
+            // must NOT escape save_dir even if the file happens to exist there.
+            // Returning None routes to the caller's existing
+            // `scrapbook.image_url_unresolvable` WatcherEvent.
+            if segment.is_empty() || segment == ".." || segment == "." {
                 return None;
             }
             path.push(segment);
@@ -3332,15 +3337,18 @@ fn resolve_scrapbook_image_path(
         return Some(path);
     }
     if let Some(filename) = url.strip_prefix("/api/renders/") {
-        let renders_dir = std::env::var("SIDEQUEST_OUTPUT_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| {
-                std::path::PathBuf::from(
-                    std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
-                )
-                .join(".sidequest")
-                .join("renders")
-            });
+        // Reviewer round-trip 1, finding 2: no silent `/tmp` fallback. When
+        // HOME is unset AND SIDEQUEST_OUTPUT_DIR is unset, return None — the
+        // caller already treats that as `scrapbook.image_url_unresolvable`.
+        let renders_dir = match std::env::var("SIDEQUEST_OUTPUT_DIR") {
+            Ok(dir) => std::path::PathBuf::from(dir),
+            Err(_) => match std::env::var("HOME") {
+                Ok(home) => std::path::PathBuf::from(home)
+                    .join(".sidequest")
+                    .join("renders"),
+                Err(_) => return None,
+            },
+        };
         return Some(renders_dir.join(filename));
     }
     None

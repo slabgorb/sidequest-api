@@ -44,6 +44,31 @@ pub fn persist_scrapbook_image(
     player: &str,
     src_path: &Path,
 ) -> io::Result<PathBuf> {
+    // Path-traversal guard (Reviewer finding, round-trip 1). Although genre /
+    // world / player flow from internal session context today, they compose a
+    // filesystem subtree. Treat them as untrusted inputs: reject `..`, `.`,
+    // empty, and any embedded path separator. Canonical slugs (`low_fantasy`,
+    // `iron-hold`, `Rux`) pass unchanged — see the
+    // `persist_accepts_normal_slug_shaped_segments` regression test.
+    for (label, segment) in [("genre", genre), ("world", world), ("player", player)] {
+        if segment.is_empty()
+            || segment == ".."
+            || segment == "."
+            || segment.contains('/')
+            || segment.contains('\\')
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "persist_scrapbook_image: {} segment {:?} rejected — \
+                     empty, `.`/`..`, or embedded separator would escape or \
+                     corrupt the save-scoped scrapbook subtree",
+                    label, segment
+                ),
+            ));
+        }
+    }
+
     let filename = src_path.file_name().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,

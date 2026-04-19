@@ -238,6 +238,19 @@ pub(super) async fn build_response_messages(
     // the resume-side existence check will catch a dangling file later.
     let image_url = if let Some(original_url) = image_url {
         if ctx.genre_slug.is_empty() || ctx.world_slug.is_empty() {
+            // Empty-slug short-circuit (Reviewer round-trip 1, finding 4).
+            // A missing genre/world slug is a configuration error, not a
+            // graceful degradation. We keep the original `/api/renders/` URL
+            // so the client can still render the tile this turn, but emit a
+            // loud ValidationWarning so the GM panel sees that the save-
+            // scoped persistence path was skipped.
+            WatcherEventBuilder::new("scrapbook", WatcherEventType::ValidationWarning)
+                .field("event", "scrapbook.image_persist_skipped_missing_slugs")
+                .field("turn_id", turn_id)
+                .field("original_url", original_url.as_str())
+                .field("genre_slug_empty", ctx.genre_slug.is_empty())
+                .field("world_slug_empty", ctx.world_slug.is_empty())
+                .send();
             Some(original_url)
         } else {
             match rewrite_scrapbook_image_url(
@@ -250,6 +263,15 @@ pub(super) async fn build_response_messages(
                 Ok(rewritten) => match NonBlankString::new(&rewritten) {
                     Ok(nbs) => Some(nbs),
                     Err(e) => {
+                        // Reviewer round-trip 1, finding 5: the blank-rewrite
+                        // arm must emit a WatcherEvent, not merely a tracing
+                        // line — the GM panel cannot see tracing output.
+                        WatcherEventBuilder::new("scrapbook", WatcherEventType::ValidationWarning)
+                            .field("event", "scrapbook.image_rewrite_url_blank")
+                            .field("turn_id", turn_id)
+                            .field("rewritten", rewritten.as_str())
+                            .field("error", e.to_string())
+                            .send();
                         tracing::error!(
                             error = %e,
                             rewritten = %rewritten,
@@ -707,14 +729,53 @@ fn rewrite_scrapbook_image_url(
         )
     })?;
 
+    // Path-traversal guard on the filename suffix (Reviewer round-trip 1,
+    // finding 1). A daemon-generated path like `../../.ssh/id_rsa` would
+    // otherwise be joined directly into the renders dir and later under the
+    // save tree. Use `Path::file_name()` which strips separators and returns
+    // None on `..`; reject anything else.
+    let filename_osstr = std::path::Path::new(filename).file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "rewrite_scrapbook_image_url: refusing path-traversal \
+                     filename {:?}",
+                filename
+            ),
+        )
+    })?;
+    if filename_osstr.to_string_lossy() != filename {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "rewrite_scrapbook_image_url: filename {:?} contains path \
+                     components (separator or `..`) — expected a single \
+                     render-pipeline filename like `render_{{uuid}}.png`",
+                filename
+            ),
+        ));
+    }
+
     // Resolve the source path the same way the render broadcaster does.
-    let renders_dir = std::env::var("SIDEQUEST_OUTPUT_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+    // Reviewer round-trip 1, finding 2: no silent `/tmp` fallback — if both
+    // `SIDEQUEST_OUTPUT_DIR` and `HOME` are unset, return a loud `NotFound`
+    // so the caller's existing `scrapbook.image_persist_failed` OTEL path
+    // fires. `/tmp` was masking a configuration error.
+    let renders_dir = match std::env::var("SIDEQUEST_OUTPUT_DIR") {
+        Ok(dir) => std::path::PathBuf::from(dir),
+        Err(_) => match std::env::var("HOME") {
+            Ok(home) => std::path::PathBuf::from(home)
                 .join(".sidequest")
-                .join("renders")
-        });
+                .join("renders"),
+            Err(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "rewrite_scrapbook_image_url: cannot resolve renders dir — \
+                     neither SIDEQUEST_OUTPUT_DIR nor HOME is set",
+                ));
+            }
+        },
+    };
     let src_path = renders_dir.join(filename);
 
     sidequest_game::persist_scrapbook_image(save_dir, genre, world, player, &src_path)?;
