@@ -197,6 +197,12 @@ pub struct GameSnapshot {
     /// Keys are resource names (e.g., "luck", "heat").
     #[serde(default)]
     pub resources: HashMap<String, ResourcePool>,
+    /// Canonical identity packets for every OTHER active party member
+    /// (story 37-36). Refreshed at turn start by `inject_party_peers`.
+    /// `#[serde(default)]` so pre-37-36 saves deserialize with an empty Vec
+    /// and the injector re-populates on the next turn.
+    #[serde(default)]
+    pub party_peers: Vec<crate::party_peer::PartyPeer>,
 }
 
 /// Backward-compatible deserializer for active_tropes.
@@ -319,6 +325,8 @@ struct GameSnapshotRaw {
     player_dead: bool,
     #[serde(default)]
     resources: HashMap<String, ResourcePool>,
+    #[serde(default)]
+    party_peers: Vec<crate::party_peer::PartyPeer>,
 }
 
 impl From<GameSnapshotRaw> for GameSnapshot {
@@ -428,6 +436,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             discovered_rooms: raw.discovered_rooms,
             player_dead: raw.player_dead,
             resources,
+            party_peers: raw.party_peers,
         }
     }
 }
