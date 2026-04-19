@@ -84,6 +84,51 @@ pub use dispatch::beat::{apply_beat_dispatch, BeatDispatchOutcome};
 pub use dispatch::sealed_letter::{resolve_sealed_letter_lookup, SealedLetterOutcome};
 
 // ---------------------------------------------------------------------------
+// Story 37-24: OTEL spans for NPC mechanical turns + stealth/trope engagement.
+// Closes the Illusionism gap — every NPC action the narrator resolves now emits
+// a `npc.turn` WatcherEvent so the GM panel can see whether the outcome was
+// backed by a mechanical roll or is pure narrative adjudication. Matching
+// `trope.engagement_outcome` emissions mark stealth / confrontation / evasion
+// resolutions so Sebastien's rules-first panel view can verify the trope
+// engine actually ran.
+// ---------------------------------------------------------------------------
+
+/// Emit a `npc.turn` WatcherEvent when an NPC action resolves.
+///
+/// `mechanical_basis` must always be present. Pass a roll reference like
+/// `"d20:14 vs dc:12"` when a check was rolled, or `"narrative"` when the
+/// outcome was narrator-adjudicated with no mechanical backing. Passing
+/// `"narrative"` is not a workaround — it is the signal the GM panel uses to
+/// surface Illusionism.
+pub fn emit_npc_turn(actor: &str, action: &str, outcome: &str, mechanical_basis: &str) {
+    WatcherEventBuilder::new("npc", WatcherEventType::StateTransition)
+        .field("event", "npc.turn")
+        .field("actor", actor)
+        .field("action", action)
+        .field("outcome", outcome)
+        .field("mechanical_basis", mechanical_basis)
+        .send();
+}
+
+/// Emit a `trope.engagement_outcome` WatcherEvent when a stealth / confrontation
+/// / evasion trope resolves (either via auto-resolve at progression ≥ 1.0 or
+/// via a fired escalation beat on a tag-qualifying trope).
+pub fn emit_trope_engagement_outcome(
+    trope_id: &str,
+    engagement_kind: &str,
+    outcome: &str,
+    progression_delta: f64,
+) {
+    WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
+        .field("event", "trope.engagement_outcome")
+        .field("trope_id", trope_id)
+        .field("engagement_kind", engagement_kind)
+        .field("outcome", outcome)
+        .field("progression_delta", progression_delta)
+        .send();
+}
+
+// ---------------------------------------------------------------------------
 // Story 34-11: OTEL dice span emitters — GM panel visibility for dice dispatch
 // ---------------------------------------------------------------------------
 

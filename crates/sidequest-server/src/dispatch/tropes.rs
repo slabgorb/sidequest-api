@@ -12,6 +12,33 @@ use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
+/// Story 37-24: classify a trope as a stealth / confrontation / evasion
+/// engagement by inspecting its tags (first qualifying tag wins). Returns
+/// None if the trope is not an engagement type — the caller should skip
+/// the `trope.engagement_outcome` span in that case rather than emit a
+/// misleading `"other"` value.
+fn classify_engagement_kind<'a>(
+    trope_id: &str,
+    trope_defs: &'a [sidequest_genre::TropeDefinition],
+) -> Option<&'static str> {
+    let def = trope_defs.iter().find(|d| {
+        d.id.as_deref() == Some(trope_id) || d.name.as_str() == trope_id
+    })?;
+    for tag in &def.tags {
+        let t = tag.to_ascii_lowercase();
+        if t == "stealth" {
+            return Some("stealth");
+        }
+        if t == "confrontation" || t == "combat" {
+            return Some("confrontation");
+        }
+        if t == "evasion" || t == "chase" {
+            return Some("evasion");
+        }
+    }
+    None
+}
+
 /// Evaluate trope triggers via LLM, tick the trope engine, return fired beats.
 ///
 /// Replaces the old keyword substring scan with Claude-based semantic evaluation.
@@ -136,6 +163,16 @@ pub(crate) fn process_tropes(
                     encounter.resolve_from_trope(ts.trope_definition_id());
                 }
             }
+            // Story 37-24: emit engagement outcome span if this resolved trope
+            // is tagged as a stealth / confrontation / evasion engagement.
+            if let Some(kind) = classify_engagement_kind(ts.trope_definition_id(), ctx.trope_defs) {
+                crate::emit_trope_engagement_outcome(
+                    ts.trope_definition_id(),
+                    kind,
+                    "success",
+                    ts.progression(),
+                );
+            }
         }
     }
 
@@ -152,6 +189,18 @@ pub(crate) fn process_tropes(
             .field("trope_id", &beat.trope_id)
             .field("threshold", beat.beat.at)
             .send();
+        // Story 37-24: when a fired beat belongs to a stealth / confrontation /
+        // evasion trope, emit the engagement-outcome span. Outcome is
+        // "escalation" — a beat firing is progression advancing, not terminal
+        // success/failure. Terminal outcomes fire at the auto-resolve site above.
+        if let Some(kind) = classify_engagement_kind(&beat.trope_id, ctx.trope_defs) {
+            crate::emit_trope_engagement_outcome(
+                &beat.trope_id,
+                kind,
+                "escalation",
+                beat.beat.at,
+            );
+        }
     }
 
     // --- Phase 4: Broadcast earned achievements + emit watcher events ---
