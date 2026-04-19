@@ -8,6 +8,7 @@
 pub mod ability;
 pub mod accusation;
 pub mod achievement;
+pub mod advancement;
 pub mod affinity;
 pub mod audio_mixer;
 pub mod axis;

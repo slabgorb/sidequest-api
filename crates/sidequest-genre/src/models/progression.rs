@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::advancement::AdvancementEffect;
+
 /// Character progression configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProgressionConfig {
@@ -70,6 +72,12 @@ pub struct AffinityTier {
     pub description: String,
     /// Abilities unlocked at this tier.
     pub abilities: Vec<Ability>,
+    /// Authored mechanical effects this tier applies (Story 39-5 /
+    /// ADR-078). Heavy_metal hosts its advancement tree here; other
+    /// genres use a standalone `advancements.yaml` sibling file (see
+    /// [`crate::load_advancement_tree`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mechanical_effects: Option<Vec<AdvancementEffect>>,
 }
 
 /// An ability within an affinity tier.

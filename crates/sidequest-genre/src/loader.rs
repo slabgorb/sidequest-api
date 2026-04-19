@@ -135,6 +135,147 @@ fn load_yaml_optional<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, Gen
     load_yaml(path).map(Some)
 }
 
+/// Load a genre's advancement tree (Story 39-5 / ADR-078).
+///
+/// Dual-location rule, per the GM amendment (2026-04-15):
+///
+/// 1. If `{genre}/progression.yaml` has `mechanical_effects` on any
+///    affinity tier, harvest those tiers into the tree.
+/// 2. Otherwise, if `{genre}/advancements.yaml` exists, load the tree
+///    from it directly.
+/// 3. If a genre carries mechanical_effects on `progression.yaml` tiers
+///    AND a sibling `advancements.yaml` file, the loader returns a
+///    `GenreError::ValidationError` naming both files. No silent
+///    fallback — picking one host would mask a genre-author bug.
+/// 4. If neither host is present, return `AdvancementTree::default()`
+///    (empty). This is not a fallback in the forbidden sense — an
+///    empty tree is a valid genre configuration (no mechanical
+///    advancements). The dual-host check still fires loudly when
+///    both files coexist.
+///
+/// Returns the assembled [`AdvancementTree`].
+pub fn load_advancement_tree(genre_dir: &Path) -> Result<AdvancementTree, GenreError> {
+    let progression_path = genre_dir.join("progression.yaml");
+    let advancements_path = genre_dir.join("advancements.yaml");
+
+    let progression_tiers = harvest_progression_mechanical_effects(&progression_path)?;
+    let advancements_file_exists = advancements_path.is_file();
+
+    if !progression_tiers.is_empty() && advancements_file_exists {
+        return Err(GenreError::ValidationError {
+            message: format!(
+                "genre at {} carries mechanical_effects on progression.yaml affinity tiers AND \
+                 a sibling advancements.yaml file; these hosts are mutually exclusive — pick one \
+                 (paths: {}, {})",
+                genre_dir.display(),
+                progression_path.display(),
+                advancements_path.display(),
+            ),
+        });
+    }
+
+    if !progression_tiers.is_empty() {
+        return Ok(AdvancementTree {
+            tiers: progression_tiers,
+        });
+    }
+
+    if advancements_file_exists {
+        let tree: AdvancementTree = load_yaml(&advancements_path)?;
+        return Ok(tree);
+    }
+
+    Ok(AdvancementTree::default())
+}
+
+/// Harvest `mechanical_effects` from each populated affinity tier of a
+/// genre's `progression.yaml`, yielding an auto-named
+/// [`AdvancementTier`] per host.
+///
+/// Returns an empty vec when the file is absent or when no tier carries
+/// mechanical_effects. The dual-host guard in [`load_advancement_tree`]
+/// treats that empty result as "no progression host present."
+fn harvest_progression_mechanical_effects(
+    progression_path: &Path,
+) -> Result<Vec<AdvancementTier>, GenreError> {
+    if !progression_path.is_file() {
+        return Ok(Vec::new());
+    }
+    let progression: ProgressionConfig = load_yaml(progression_path)?;
+    let mut tiers: Vec<AdvancementTier> = Vec::new();
+    for affinity in &progression.affinities {
+        let Some(unlocks) = affinity.unlocks.as_ref() else {
+            continue;
+        };
+        for (level, maybe_tier) in [
+            (0u32, &unlocks.tier_0),
+            (1u32, &unlocks.tier_1),
+            (2u32, &unlocks.tier_2),
+            (3u32, &unlocks.tier_3),
+        ] {
+            let Some(tier) = maybe_tier.as_ref() else {
+                continue;
+            };
+            let Some(effects) = tier.mechanical_effects.as_ref() else {
+                continue;
+            };
+            if effects.is_empty() {
+                continue;
+            }
+            let id = format!("{}_t{}", affinity.name.to_lowercase(), level);
+            let milestone = format!("{}_t{}_milestone", affinity.name.to_lowercase(), level);
+            let raw = RawAdvancementTierHarvest {
+                id,
+                required_milestone: milestone,
+                class_gates: Vec::new(),
+                effects: effects.clone(),
+            };
+            // Run the harvested tier through the same validated-constructor
+            // path as YAML-authored tiers so invariants (non-blank id / milestone)
+            // are enforced uniformly.
+            let built = AdvancementTier::try_from(raw).map_err(|e| GenreError::ValidationError {
+                message: format!(
+                    "harvested progression tier from {}: {}",
+                    progression_path.display(),
+                    e
+                ),
+            })?;
+            tiers.push(built);
+        }
+    }
+    Ok(tiers)
+}
+
+/// Locally-scoped conversion target for harvested progression tiers.
+/// Uses the same field shape as `RawAdvancementTier` so the
+/// `TryFrom<RawAdvancementTier>` validation runs for us.
+struct RawAdvancementTierHarvest {
+    id: String,
+    required_milestone: String,
+    class_gates: Vec<String>,
+    effects: Vec<AdvancementEffect>,
+}
+
+impl TryFrom<RawAdvancementTierHarvest> for AdvancementTier {
+    type Error = crate::models::advancement::AdvancementTierError;
+
+    fn try_from(raw: RawAdvancementTierHarvest) -> Result<Self, Self::Error> {
+        use crate::models::advancement::AdvancementTierError as E;
+        if raw.id.trim().is_empty() {
+            return Err(E::BlankId);
+        }
+        if raw.required_milestone.trim().is_empty() {
+            return Err(E::BlankRequiredMilestone);
+        }
+        Ok(Self {
+            id: raw.id,
+            required_milestone: raw.required_milestone,
+            class_gates: raw.class_gates,
+            effects: raw.effects,
+        })
+    }
+}
+
 /// Load all subdirectories of `{pack_path}/{subdir}/` into a HashMap,
 /// applying `loader` to each subdirectory.
 fn load_subdirectories<T, F>(

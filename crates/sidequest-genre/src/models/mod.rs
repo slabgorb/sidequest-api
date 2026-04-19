@@ -10,6 +10,8 @@ pub mod archetype_axes;
 pub mod archetype_constraints;
 /// World-level archetype funnels — resolves axis pairs to named world archetypes.
 pub mod archetype_funnels;
+/// Authored advancement effects + RecoveryTrigger (Story 39-5 / ADR-078).
+pub mod advancement;
 mod audio;
 mod axes;
 mod character;
@@ -30,6 +32,7 @@ mod tropes;
 /// World configuration, cartography, and room graph types.
 pub mod world;
 
+pub use advancement::*;
 pub use audio::*;
 pub use axes::*;
 pub use character::*;

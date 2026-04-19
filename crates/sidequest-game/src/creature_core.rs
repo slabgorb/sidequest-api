@@ -161,32 +161,11 @@ impl ThresholdAt for EdgeThreshold {
     }
 }
 
-/// Trigger that grants composure back to an `EdgePool`.
-///
-/// Authored in genre YAML (39-6) and resolved during beat dispatch
-/// (39-4). Story 39-1 only introduces the shape; no engine wiring yet.
-///
-/// Marked `#[non_exhaustive]` because genre authors are expected to
-/// add further recovery variants in later stories — keeps external
-/// `match` arms honest about the open set.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum RecoveryTrigger {
-    /// Restore edge when the encounter resolves (win or escape).
-    OnResolution,
-    /// An ally spending an action to shore up the creature.
-    OnAllyRescue,
-    /// A specific authored beat landing, optionally gated on
-    /// the creature being strained (`current <= max / 4`).
-    OnBeatSuccess {
-        /// Beat identifier that triggers the recovery.
-        beat_id: String,
-        /// How much edge to restore.
-        amount: i32,
-        /// If true, only fires while the pool is in the strained band.
-        while_strained: bool,
-    },
-}
+// `RecoveryTrigger` moved to `sidequest-genre::models::advancement` in
+// Story 39-5 so `AdvancementEffect::EdgeRecovery { trigger: RecoveryTrigger }`
+// can live in the genre crate without a game→genre→game cycle. This
+// re-export keeps the historical path working.
+pub use sidequest_genre::RecoveryTrigger;
 
 /// Result of applying a delta to an `EdgePool`.
 ///

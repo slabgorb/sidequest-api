@@ -48,6 +48,8 @@ pub use sidequest_genre_layered_derive::Layered;
 pub use cache::GenreCache;
 pub use error::{GenreError, ValidationErrors};
 pub use genre_code::{GenreCode, GenreCodeError};
-pub use loader::{load_genre_pack, load_interaction_table, load_rules_config, GenreLoader};
+pub use loader::{
+    load_advancement_tree, load_genre_pack, load_interaction_table, load_rules_config, GenreLoader,
+};
 pub use models::*;
 pub use resolve::resolve_trope_inheritance;
