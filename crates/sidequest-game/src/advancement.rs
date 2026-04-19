@@ -51,6 +51,11 @@ pub struct ResolvedBeat {
     /// by the `advancement.effect_applied` OTEL span and the
     /// `creature.edge_delta.advancements_applied` field.
     pub source_effects: Vec<AdvancementEffect>,
+    /// Parallel vector of tier ids matching `source_effects[i]` — the
+    /// tier id the effect was sourced from. Used by dispatch to attribute
+    /// `advancement.effect_applied` and `creature.edge_delta.advancements_applied`
+    /// back to the authored tier in the GM panel.
+    pub source_tier_ids: Vec<String>,
 }
 
 /// Resolve a beat's effective shape for a character, given the genre's
@@ -73,6 +78,7 @@ pub fn resolved_beat_for(
     let mut target_edge_delta = beat.target_edge_delta;
     let mut resource_deltas = beat.resource_deltas.clone();
     let mut source_effects: Vec<AdvancementEffect> = Vec::new();
+    let mut source_tier_ids: Vec<String> = Vec::new();
 
     for tier_id in &character.core.acquired_advancements {
         let tier = tree
@@ -97,6 +103,7 @@ pub fn resolved_beat_for(
             );
             if applied {
                 source_effects.push(effect.clone());
+                source_tier_ids.push(tier_id.clone());
             }
         }
     }
@@ -106,6 +113,7 @@ pub fn resolved_beat_for(
         target_edge_delta,
         resource_deltas,
         source_effects,
+        source_tier_ids,
     }
 }
 

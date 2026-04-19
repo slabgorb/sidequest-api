@@ -262,20 +262,22 @@ fn advancement_effect_is_non_exhaustive_for_adr_079_extensions() {
 
 #[test]
 fn advancement_tree_deserializes_with_tiers() {
-    let yaml = "tiers:\n\
-                  - id: iron_1\n\
-                    required_milestone: iron_track\n\
-                    class_gates: [Fighter]\n\
-                    effects:\n\
-                      - type: edge_max_bonus\n\
-                        amount: 2\n\
-                  - id: pact_1\n\
-                    required_milestone: pact_track\n\
-                    class_gates: []\n\
-                    effects:\n\
-                      - type: beat_discount\n\
-                        beat_id: pact_invocation\n\
-                        edge_delta_mod: -1\n";
+    let yaml = concat!(
+        "tiers:\n",
+        "  - id: iron_1\n",
+        "    required_milestone: iron_track\n",
+        "    class_gates: [Fighter]\n",
+        "    effects:\n",
+        "      - type: edge_max_bonus\n",
+        "        amount: 2\n",
+        "  - id: pact_1\n",
+        "    required_milestone: pact_track\n",
+        "    class_gates: []\n",
+        "    effects:\n",
+        "      - type: beat_discount\n",
+        "        beat_id: pact_invocation\n",
+        "        edge_delta_mod: -1\n",
+    );
     let tree: AdvancementTree =
         serde_yaml::from_str(yaml).expect("AdvancementTree must deserialize from canonical YAML");
     assert_eq!(tree.tiers.len(), 2, "tree must preserve tier order + count");
@@ -324,12 +326,14 @@ fn affinity_tier_mechanical_effects_deserializes_inline() {
     // The heavy_metal host location: affinity tier carries a
     // `mechanical_effects` list. Other packs with no such field keep
     // parsing (tested via absent-case below).
-    let yaml = "name: \"Iron Affinity — Tier 1\"\n\
-                description: \"Durability awakens.\"\n\
-                abilities: []\n\
-                mechanical_effects:\n\
-                  - type: edge_max_bonus\n\
-                    amount: 2\n";
+    let yaml = concat!(
+        "name: \"Iron Affinity — Tier 1\"\n",
+        "description: \"Durability awakens.\"\n",
+        "abilities: []\n",
+        "mechanical_effects:\n",
+        "  - type: edge_max_bonus\n",
+        "    amount: 2\n",
+    );
     let tier: AffinityTier =
         serde_yaml::from_str(yaml).expect("AffinityTier must parse with mechanical_effects");
     let effects = tier
@@ -451,8 +455,7 @@ fn loader_fails_loudly_when_both_hosts_present() {
         msg
     );
     assert!(
-        matches!(err, GenreError::Validation(_) | GenreError::Other(_))
-            || matches!(err, _),
+        matches!(err, GenreError::ValidationError { .. } | GenreError::LoadError { .. }),
         "error variant should be a loader-level validation, not a generic IO error: {:?}",
         err
     );

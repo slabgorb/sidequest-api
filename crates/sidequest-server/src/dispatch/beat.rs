@@ -38,8 +38,9 @@
 //! call in `dispatch/mod.rs` also satisfies the story 37-14 wiring test,
 //! which scans for `apply_beat_dispatch(` at the dispatch layer.
 
+use sidequest_game::advancement::resolved_beat_for;
 use sidequest_game::state::GameSnapshot;
-use sidequest_genre::{BeatDef, ConfrontationDef};
+use sidequest_genre::{AdvancementEffect, AdvancementTree, BeatDef, ConfrontationDef};
 
 use crate::{Severity, WatcherEventBuilder, WatcherEventType};
 
@@ -102,13 +103,97 @@ pub fn apply_beat_edge_deltas(
     beat: &BeatDef,
     encounter_type: &str,
 ) -> EdgeDeltaOutcome {
+    apply_edge_deltas_inner(
+        snapshot,
+        beat,
+        encounter_type,
+        beat.edge_delta,
+        beat.target_edge_delta,
+        beat.resource_deltas.as_ref(),
+        &[],
+    )
+}
+
+/// Story 39-5: beat-edge-delta dispatch that routes through
+/// [`resolved_beat_for`] so live advancement effects on the acting
+/// character modify the runtime debits (not just the raw
+/// `beat.edge_delta`).
+///
+/// Behavioural equivalence with [`apply_beat_edge_deltas`] on an empty
+/// `AdvancementTree` — the resolved path falls through to the raw beat
+/// fields when the acting character has no acquired advancements or when
+/// no effects matched.
+///
+/// **Enrichment over [`apply_beat_edge_deltas`]:**
+/// * `creature.edge_delta` span carries an `advancements_applied` field
+///   whose value is a comma-joined list of tier ids that modified the
+///   debit.
+/// * Emits one `advancement.effect_applied` span per source effect on
+///   the `advancement` component, naming `source_tier`, `beat_id`, and
+///   `effect_type` so the GM panel can render the causal chain.
+///
+/// **No silent fallbacks** (same rules as [`apply_beat_edge_deltas`]):
+/// missing opponent, missing character, or missing encounter on
+/// composure-break all panic.
+pub fn apply_beat_edge_deltas_resolved(
+    snapshot: &mut GameSnapshot,
+    beat: &BeatDef,
+    encounter_type: &str,
+    tree: &AdvancementTree,
+) -> EdgeDeltaOutcome {
+    let (edge_delta, target_edge_delta, resource_deltas, source_effects, source_tier_ids) =
+        if let Some(character) = snapshot.characters.first() {
+            let r = resolved_beat_for(character, beat, tree);
+            (
+                r.edge_delta,
+                r.target_edge_delta,
+                r.resource_deltas,
+                r.source_effects,
+                r.source_tier_ids,
+            )
+        } else {
+            (
+                beat.edge_delta,
+                beat.target_edge_delta,
+                beat.resource_deltas.clone(),
+                Vec::new(),
+                Vec::new(),
+            )
+        };
+
+    // Emit advancement.effect_applied per source effect — GM panel uses
+    // these spans to explain why the debit diverged from the raw beat.
+    for (tier_id, effect) in source_tier_ids.iter().zip(source_effects.iter()) {
+        emit_effect_applied_span(tier_id, &beat.id, effect);
+    }
+
+    apply_edge_deltas_inner(
+        snapshot,
+        beat,
+        encounter_type,
+        edge_delta,
+        target_edge_delta,
+        resource_deltas.as_ref(),
+        &source_tier_ids,
+    )
+}
+
+fn apply_edge_deltas_inner(
+    snapshot: &mut GameSnapshot,
+    beat: &BeatDef,
+    encounter_type: &str,
+    edge_delta: Option<i32>,
+    target_edge_delta: Option<i32>,
+    resource_deltas: Option<&std::collections::HashMap<String, f64>>,
+    advancements_applied: &[String],
+) -> EdgeDeltaOutcome {
     let mut outcome = EdgeDeltaOutcome::default();
     let mut broken: Option<String> = None;
 
     // Self-debit — acting character is snapshot.characters[0] (dispatch
     // convention; the builder and dispatch loop keep the acting PC in
     // slot 0).
-    if let Some(delta) = beat.edge_delta {
+    if let Some(delta) = edge_delta {
         let (name, new_current) = {
             let ch = snapshot
                 .characters
@@ -117,7 +202,14 @@ pub fn apply_beat_edge_deltas(
             let result = ch.core.edge.apply_delta(-delta);
             (ch.core.name.as_str().to_string(), result.new_current)
         };
-        emit_edge_delta_event(&name, &beat.id, -delta, new_current, encounter_type);
+        emit_edge_delta_event(
+            &name,
+            &beat.id,
+            -delta,
+            new_current,
+            encounter_type,
+            advancements_applied,
+        );
         outcome.self_new_current = Some(new_current);
         if new_current <= 0 {
             outcome.composure_break = true;
@@ -128,7 +220,7 @@ pub fn apply_beat_edge_deltas(
     // Target-debit — find the primary opponent (first actor with
     // role="opponent"). No silent fallback: if target_edge_delta is set
     // but no opponent is declared, panic.
-    if let Some(delta) = beat.target_edge_delta {
+    if let Some(delta) = target_edge_delta {
         let opponent_name = snapshot
             .encounter
             .as_ref()
@@ -157,6 +249,7 @@ pub fn apply_beat_edge_deltas(
             -delta,
             new_current,
             encounter_type,
+            advancements_applied,
         );
         outcome.target_new_current = Some(new_current);
         if new_current <= 0 {
@@ -168,7 +261,7 @@ pub fn apply_beat_edge_deltas(
     // Resource deltas — route through the existing ResourcePool path.
     // Silently unknown resources emit a ValidationWarning (same policy
     // as the narrator-emitted path in state_mutations.rs).
-    if let Some(ref deltas) = beat.resource_deltas {
+    if let Some(deltas) = resource_deltas {
         for (resource_name, delta) in deltas {
             let op = if *delta >= 0.0 {
                 sidequest_game::ResourcePatchOp::Add
@@ -240,6 +333,7 @@ fn emit_edge_delta_event(
     delta: i32,
     new_current: i32,
     encounter_type: &str,
+    advancements_applied: &[String],
 ) {
     WatcherEventBuilder::new("creature", WatcherEventType::StateTransition)
         .field("event", "creature.edge_delta")
@@ -249,6 +343,27 @@ fn emit_edge_delta_event(
         .field("delta", delta)
         .field("new_current", new_current)
         .field("encounter_type", encounter_type)
+        .field("advancements_applied", advancements_applied.join(","))
+        .send();
+}
+
+fn effect_type_name(effect: &AdvancementEffect) -> &'static str {
+    match effect {
+        AdvancementEffect::EdgeMaxBonus { .. } => "edge_max_bonus",
+        AdvancementEffect::EdgeRecovery { .. } => "edge_recovery",
+        AdvancementEffect::BeatDiscount { .. } => "beat_discount",
+        AdvancementEffect::LeverageBonus { .. } => "leverage_bonus",
+        AdvancementEffect::LoreRevealBonus { .. } => "lore_reveal_bonus",
+        _ => "unknown",
+    }
+}
+
+fn emit_effect_applied_span(tier_id: &str, beat_id: &str, effect: &AdvancementEffect) {
+    WatcherEventBuilder::new("advancement", WatcherEventType::StateTransition)
+        .field("event", "advancement.effect_applied")
+        .field("source_tier", tier_id)
+        .field("beat_id", beat_id)
+        .field("effect_type", effect_type_name(effect))
         .send();
 }
 
@@ -526,7 +641,15 @@ pub(super) fn handle_applied_side_effects(
     // Story 39-4: beat-driven edge and resource deltas. Runs before the
     // gold-delta block so a composure break (encounter auto-resolve) is
     // visible to downstream escalation checks below.
-    apply_beat_edge_deltas(ctx.snapshot, &beat_for_edge, encounter_type);
+    //
+    // Story 39-5: dispatch routes through `apply_beat_edge_deltas_resolved`
+    // so acquired advancement effects modify the runtime debits (not just
+    // the raw `beat.edge_delta`). The tree is empty here until 39-6 threads
+    // the genre pack's loaded `AdvancementTree` through `DispatchContext` —
+    // an empty tree is behaviourally equivalent to the 39-4 raw path, so
+    // this call is a safe no-op when no advancements are loaded.
+    let empty_tree = AdvancementTree::default();
+    apply_beat_edge_deltas_resolved(ctx.snapshot, &beat_for_edge, encounter_type, &empty_tree);
 
     // Gold delta: mutate inventory and emit a ledger event.
     if let Some(gd) = gold_delta {
