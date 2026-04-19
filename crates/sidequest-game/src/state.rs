@@ -446,21 +446,25 @@ impl GameSnapshot {
         self.characters
             .iter()
             .filter(|c| c.is_friendly)
-            .map(|c| c.hp_fraction())
+            .map(|c| c.edge_fraction())
             .fold(1.0_f64, f64::min)
     }
 
-    /// Find a mutable character or NPC by name and apply an HP delta.
+    /// Find a mutable character or NPC by name and apply an edge delta.
+    ///
+    /// Story 39-2: HP is gone — LLM-provided `hp_changes` patch fields are
+    /// routed through `EdgePool::apply_delta` as a straight composure
+    /// delta. Story 39-4 wires dispatch's real edge_delta channel.
     fn apply_hp_change(&mut self, name: &str, delta: i32) {
         for c in &mut self.characters {
             if c.name() == name {
-                c.apply_hp_delta(delta);
+                c.core.apply_edge_delta(delta);
                 return;
             }
         }
         for n in &mut self.npcs {
             if n.name() == name {
-                n.apply_hp_delta(delta);
+                n.core.apply_edge_delta(delta);
                 return;
             }
         }
@@ -623,12 +627,11 @@ impl GameSnapshot {
                                 .and_then(|p| NonBlankString::new(p).ok())
                                 .unwrap_or_else(|| NonBlankString::new("Unknown").unwrap()),
                             level: 1,
-                            hp: 10,
-                            max_hp: 10,
-                            ac: 10,
                             xp: 0,
                             statuses: vec![],
                             inventory: Inventory::default(),
+                            edge: crate::creature_core::placeholder_edge_pool(),
+                            acquired_advancements: vec![],
                         },
                         voice_id: None,
                         disposition: Disposition::new(0),
@@ -859,19 +862,19 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
     // engagement (CLAUDE.md OTEL Observability Principle, story 35-10).
     if delta.characters_changed() {
         for c in state.characters.iter().filter(|c| c.is_friendly) {
-            let hp = Combatant::hp(c);
-            let max_hp = Combatant::max_hp(c);
-            if max_hp == 0 {
+            let edge = Combatant::edge(c);
+            let max_edge = Combatant::max_edge(c);
+            if max_edge == 0 {
                 continue;
             }
-            let frac = hp as f64 / max_hp as f64;
+            let frac = edge as f64 / max_edge as f64;
             if frac < 0.5 {
                 WatcherEventBuilder::new("combatant", WatcherEventType::StateTransition)
-                    .field("action", "bloodied")
+                    .field("action", "strained")
                     .field("name", c.name())
-                    .field("hp", hp)
-                    .field("max_hp", max_hp)
-                    .field("hp_fraction", frac)
+                    .field("edge", edge)
+                    .field("max_edge", max_edge)
+                    .field("edge_fraction", frac)
                     .send();
             }
         }
@@ -983,8 +986,11 @@ pub fn build_protocol_delta(
                         // clone the validated newtype directly instead of
                         // round-tripping through `&str` → `String`.
                         name: c.core.name.clone(),
-                        hp: Combatant::hp(c),
-                        max_hp: Combatant::max_hp(c),
+                        // Protocol still carries `hp`/`max_hp` field names in
+                        // 39-2; story 39-7 renames on the wire + UI side.
+                        // Until then we surface edge values through them.
+                        hp: Combatant::edge(c),
+                        max_hp: Combatant::max_edge(c),
                         level: Combatant::level(c),
                         // CharacterState.class is kept as raw String on the
                         // protocol side (see message.rs comment) — unwrap

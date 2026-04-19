@@ -76,9 +76,8 @@ fn test_creature() -> CreatureCore {
         description: NonBlankString::new("A sneaky goblin").unwrap(),
         personality: NonBlankString::new("Cowardly but cunning").unwrap(),
         level: 2,
-        hp: 15,
-        max_hp: 20,
-        ac: 12,
+        edge: sidequest_game::creature_core::placeholder_edge_pool(),
+        acquired_advancements: vec![],
         xp: 0,
         inventory: Inventory::default(),
         statuses: vec![],
@@ -658,7 +657,7 @@ fn apply_hp_delta_emits_event() {
     let (_guard, mut rx) = fresh_subscriber();
     let mut creature = test_creature();
 
-    creature.apply_hp_delta(-5);
+    creature.apply_edge_delta(-5);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");
@@ -676,7 +675,7 @@ fn hp_delta_event_has_required_fields() {
     let mut creature = test_creature();
     // creature starts at hp=15, max_hp=20
 
-    creature.apply_hp_delta(-5);
+    creature.apply_edge_delta(-5);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");
@@ -730,7 +729,7 @@ fn hp_delta_clamped_true_on_overheal() {
     let mut creature = test_creature();
     // hp=15, max_hp=20, heal +100 → clamped to 20
 
-    creature.apply_hp_delta(100);
+    creature.apply_edge_delta(100);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");
@@ -753,7 +752,7 @@ fn hp_delta_clamped_true_on_overkill() {
     let mut creature = test_creature();
     // hp=15, damage -100 → clamped to 0
 
-    creature.apply_hp_delta(-100);
+    creature.apply_edge_delta(-100);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");
@@ -776,7 +775,7 @@ fn hp_delta_clamped_false_when_within_range() {
     let mut creature = test_creature();
     // hp=15, max_hp=20, damage -3 → 12 (no clamping)
 
-    creature.apply_hp_delta(-3);
+    creature.apply_edge_delta(-3);
 
     let events = drain_events(&mut rx);
     let hp_events = find_events_by_action(&events, "creature", "hp_delta");

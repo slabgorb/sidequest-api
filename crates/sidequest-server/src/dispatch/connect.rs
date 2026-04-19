@@ -196,9 +196,8 @@ pub(crate) async fn dispatch_connect(
                                 // Capture values for telemetry before moving them
                                 let char_name = restored.character_name.clone();
                                 let level = restored.level;
-                                let hp = restored.hp;
-                                let max_hp = restored.max_hp;
-                                let ac = restored.ac;
+                                let edge = restored.edge;
+                                let max_edge = restored.max_edge;
                                 let inv_count = restored.inventory.items.len();
                                 let facts_count = restored.known_facts.len();
 
@@ -206,8 +205,8 @@ pub(crate) async fn dispatch_connect(
                                 *character_json_store = Some(restored.character_json);
                                 *character_name_store =
                                     Some(restored.character_name.as_str().to_string());
-                                *character_hp = hp;
-                                *character_max_hp = max_hp;
+                                *character_hp = edge;
+                                *character_max_hp = max_edge;
                                 *inventory = restored.inventory;
 
                                 // Emit OTEL span for session restore (story 26-3)
@@ -218,9 +217,8 @@ pub(crate) async fn dispatch_connect(
                                 .field("event", "character_restored")
                                 .field("character_name", char_name.as_str())
                                 .field("level", level)
-                                .field("hp", hp)
-                                .field("max_hp", max_hp)
-                                .field("ac", ac)
+                                .field("edge", edge)
+                                .field("max_edge", max_edge)
                                 .field("inventory_count", inv_count)
                                 .field("facts_count", facts_count)
                                 .field("player", pname)
@@ -231,7 +229,7 @@ pub(crate) async fn dispatch_connect(
                                 tracing::info!(
                                     character = %char_name,
                                     level = level,
-                                    hp = hp,
+                                    edge = edge,
                                     inventory_count = inv_count,
                                     facts_count = facts_count,
                                     "session_restore.character_restored"
@@ -335,8 +333,8 @@ pub(crate) async fn dispatch_connect(
                                         .iter()
                                         .map(|c| CharacterState {
                                             name: c.core.name.clone(),
-                                            hp: c.core.hp,
-                                            max_hp: c.core.max_hp,
+                                            hp: c.core.edge.current,
+                                            max_hp: c.core.edge.max,
                                             level: c.core.level,
                                             class: c.char_class.as_str().to_string(),
                                             statuses: c.core.statuses.clone(),
@@ -409,8 +407,8 @@ pub(crate) async fn dispatch_connect(
                                     )
                                     .expect("player name falls back to literal \"Player\""),
                                     character_name: Some(c.core.name.clone()),
-                                    current_hp: c.core.hp,
-                                    max_hp: c.core.max_hp,
+                                    current_hp: c.core.edge.current,
+                                    max_hp: c.core.edge.max,
                                     statuses: c.core.statuses.clone(),
                                     class: c.char_class.clone(),
                                     level: c.core.level,
@@ -631,8 +629,8 @@ pub(crate) async fn dispatch_connect(
                                     )
                                     .expect("player name falls back to literal \"Player\""),
                                     character_name: Some(c.core.name.clone()),
-                                    current_hp: c.core.hp,
-                                    max_hp: c.core.max_hp,
+                                    current_hp: c.core.edge.current,
+                                    max_hp: c.core.edge.max,
                                     statuses: c.core.statuses.clone(),
                                     class: c.char_class.clone(),
                                     level: c.core.level,
@@ -1580,7 +1578,7 @@ pub(crate) async fn dispatch_character_creation(
                     .field("name", character.core.name.as_str())
                     .field("class", character.char_class.as_str())
                     .field("race", character.race.as_str())
-                    .field("hp", character.core.hp)
+                    .field("hp", character.core.edge.current)
                     .send();
 
                     // Resolve archetype through full pipeline (base → constraints → funnels)
@@ -1680,8 +1678,8 @@ pub(crate) async fn dispatch_character_creation(
 
                     // Store character data — sync ALL mutable fields from the built character
                     *character_name_store = Some(character.core.name.as_str().to_string());
-                    *character_hp = character.core.hp;
-                    *character_max_hp = character.core.max_hp;
+                    *character_hp = character.core.edge.current;
+                    *character_max_hp = character.core.edge.max;
                     *inventory = character.core.inventory.clone();
 
                     // Wire starting equipment from genre pack's inventory.yaml.
@@ -1818,7 +1816,7 @@ pub(crate) async fn dispatch_character_creation(
                     }
                     tracing::info!(
                         char_name = %character.core.name,
-                        hp = character.core.hp,
+                        hp = character.core.edge.current,
                         items = inventory.items.len(),
                         gold = inventory.gold,
                         pronouns = %character.pronouns,
@@ -2218,8 +2216,8 @@ pub(crate) async fn dispatch_character_creation(
                             genre_slug: session.genre_slug().unwrap_or(""),
                             world_slug: session.world_slug().unwrap_or(""),
                             player_name_for_save: player_name_store.as_deref().unwrap_or("Player"),
-                            hp: character_hp,
-                            max_hp: character_max_hp,
+                            edge: character_hp,
+                            max_edge: character_max_hp,
                             level: character_level,
                             xp: character_xp,
                             current_location,
@@ -2672,8 +2670,8 @@ pub(crate) async fn dispatch_character_creation(
                                     // Update character data from the (possibly restored) save
                                     transferred.character_name =
                                         Some(character.core.name.as_str().to_string());
-                                    transferred.character_hp = character.core.hp;
-                                    transferred.character_max_hp = character.core.max_hp;
+                                    transferred.character_hp = character.core.edge.current;
+                                    transferred.character_max_hp = character.core.edge.max;
                                     transferred.character_level = character.core.level;
                                     transferred.character_class =
                                         character.char_class.as_str().to_string();
@@ -2729,12 +2727,13 @@ pub(crate) async fn dispatch_character_creation(
                                             )
                                             .unwrap(),
                                             level: 1,
-                                            hp: 1,
-                                            max_hp: 1,
-                                            ac: 10,
                                             xp: 0,
                                             statuses: vec![],
                                             inventory: sidequest_game::Inventory::default(),
+                                            edge:
+                                                sidequest_game::creature_core::placeholder_edge_pool(
+                                                ),
+                                            acquired_advancements: vec![],
                                         },
                                         backstory: sidequest_protocol::NonBlankString::new("n/a")
                                             .unwrap(),
@@ -2832,8 +2831,8 @@ pub(crate) async fn dispatch_character_creation(
                                 if let Some(p) = ss.players.get_mut(player_id) {
                                     p.character_name =
                                         Some(character.core.name.as_str().to_string());
-                                    p.character_hp = character.core.hp;
-                                    p.character_max_hp = character.core.max_hp;
+                                    p.character_hp = character.core.edge.current;
+                                    p.character_max_hp = character.core.edge.max;
                                     p.character_level = character.core.level;
                                     p.character_class = character.char_class.as_str().to_string();
                                     p.inventory = inventory.clone();
@@ -3059,12 +3058,11 @@ pub(crate) async fn dispatch_character_creation(
                                                 .unwrap(),
                                                 personality: NonBlankString::new("n/a").unwrap(),
                                                 level: 1,
-                                                hp: 1,
-                                                max_hp: 1,
-                                                ac: 10,
                                                 xp: 0,
                                                 statuses: vec![],
                                                 inventory: Inventory::default(),
+                                                edge: sidequest_game::creature_core::placeholder_edge_pool(),
+                                                acquired_advancements: vec![],
                                             },
                                             backstory: NonBlankString::new("n/a").unwrap(),
                                             narrative_state: String::new(),

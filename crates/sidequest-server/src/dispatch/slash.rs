@@ -73,8 +73,8 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
         if let Some(ref cj) = ctx.character_json {
             if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
                 // Sync mutable fields that may have diverged from the JSON snapshot.
-                ch.core.hp = *ctx.hp;
-                ch.core.max_hp = *ctx.max_hp;
+                ch.core.edge.current = *ctx.edge;
+                ch.core.edge.max = *ctx.max_edge;
                 ch.core.level = *ctx.level;
                 ch.core.inventory = ctx.inventory.clone();
                 snap.characters.push(ch);
@@ -225,8 +225,11 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
                     *ctx.current_location = loc.clone();
                 }
                 if let Some(ref hp_changes) = patch.hp_changes {
+                    // Story 39-2: /gm hp_changes are routed through edge — the
+                    // GM slash command's intent is composure damage / heal.
+                    // Clamped to [0, max_edge] to preserve the pool invariant.
                     for delta in hp_changes.values() {
-                        *ctx.hp = (*ctx.hp + delta).max(0);
+                        *ctx.edge = (*ctx.edge + delta).clamp(0, *ctx.max_edge);
                     }
                 }
                 "GM command applied.".to_string()

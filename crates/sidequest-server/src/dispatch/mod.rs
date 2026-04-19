@@ -64,8 +64,11 @@ pub(crate) struct DispatchContext<'a> {
     pub genre_slug: &'a str,
     pub world_slug: &'a str,
     pub player_name_for_save: &'a str,
-    pub hp: &'a mut i32,
-    pub max_hp: &'a mut i32,
+    /// Current composure. Story 39-2: renamed from `hp`; the dispatch loop
+    /// now carries an edge pointer. 39-4 wires beat-driven edge deltas.
+    pub edge: &'a mut i32,
+    /// Max composure. Story 39-2: renamed from `max_hp`.
+    pub max_edge: &'a mut i32,
     pub level: &'a mut u32,
     pub xp: &'a mut u32,
     pub current_location: &'a mut String,
@@ -355,8 +358,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             // Sync per-player state from barrier modifications (HP, inventory, combat, etc.)
             ss.sync_player_to_locals(
                 ctx.player_id,
-                ctx.hp,
-                ctx.max_hp,
+                ctx.edge,
+                ctx.max_edge,
                 ctx.level,
                 ctx.xp,
                 ctx.inventory,
@@ -2151,8 +2154,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         temp_state.quest_log = ctx.quest_log.clone();
         if let Some(ch) = temp_state.characters.first().cloned() {
             let mut updated = ch;
-            updated.core.hp = *ctx.hp;
-            updated.core.max_hp = *ctx.max_hp;
+            updated.core.edge.current = *ctx.edge;
+            updated.core.edge.max = *ctx.max_edge;
             updated.core.level = *ctx.level;
             updated.core.inventory = ctx.inventory.clone();
             temp_state.characters = vec![updated];

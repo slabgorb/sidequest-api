@@ -22,28 +22,32 @@ pub enum ValidationResult {
     Violation(String),
 }
 
-/// Check that no creature's HP exceeds their max_hp in snapshot_after.
+/// Check that no creature's edge exceeds their max edge in snapshot_after.
+///
+/// Epic 39: renamed from HP bounds check; the EdgePool.apply_delta clamp
+/// should enforce this invariant at the mutation point, but a post-patch
+/// sweep still catches stray direct edits.
 pub fn check_hp_bounds(record: &TurnRecord) -> Vec<ValidationResult> {
     let mut results = Vec::new();
 
     for npc in &record.snapshot_after.npcs {
-        if npc.core.hp > npc.core.max_hp {
+        if npc.core.edge.current > npc.core.edge.max {
             results.push(ValidationResult::Violation(format!(
-                "NPC {}: HP {} exceeds max_hp {}",
+                "NPC {}: edge {} exceeds max_edge {}",
                 npc.core.name.as_str(),
-                npc.core.hp,
-                npc.core.max_hp
+                npc.core.edge.current,
+                npc.core.edge.max
             )));
         }
     }
 
     for character in &record.snapshot_after.characters {
-        if character.core.hp > character.core.max_hp {
+        if character.core.edge.current > character.core.edge.max {
             results.push(ValidationResult::Violation(format!(
-                "{}: HP {} exceeds max_hp {}",
+                "{}: edge {} exceeds max_edge {}",
                 character.core.name.as_str(),
-                character.core.hp,
-                character.core.max_hp
+                character.core.edge.current,
+                character.core.edge.max
             )));
         }
     }
@@ -51,13 +55,13 @@ pub fn check_hp_bounds(record: &TurnRecord) -> Vec<ValidationResult> {
     results
 }
 
-/// Check that dead entities (hp == 0 or "dead" in statuses) did not act or gain HP.
+/// Check that broken/dead entities did not act or gain composure.
 pub fn check_dead_entity_actions(record: &TurnRecord) -> Vec<ValidationResult> {
     let mut results = Vec::new();
 
     for npc_before in &record.snapshot_before.npcs {
         let is_dead =
-            !npc_before.is_alive() || npc_before.core.statuses.contains(&"dead".to_string());
+            npc_before.is_broken() || npc_before.core.statuses.contains(&"dead".to_string());
 
         if !is_dead {
             continue;
@@ -71,11 +75,11 @@ pub fn check_dead_entity_actions(record: &TurnRecord) -> Vec<ValidationResult> {
             .iter()
             .find(|n| n.core.name.as_str() == name)
         {
-            // Dead NPC gained HP
-            if npc_after.core.hp > npc_before.core.hp {
+            // Broken NPC regained composure
+            if npc_after.core.edge.current > npc_before.core.edge.current {
                 results.push(ValidationResult::Violation(format!(
-                    "Dead NPC {} gained HP ({} -> {})",
-                    name, npc_before.core.hp, npc_after.core.hp
+                    "Broken NPC {} regained edge ({} -> {})",
+                    name, npc_before.core.edge.current, npc_after.core.edge.current
                 )));
             }
 

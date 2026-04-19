@@ -21,8 +21,11 @@ pub(super) fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_
             .iter_mut()
             .find(|n| n.core.name.as_str().eq_ignore_ascii_case(&entry.name))
         {
-            npc.core.hp = entry.hp;
-            npc.core.max_hp = entry.max_hp;
+            // Story 39-2: NpcRegistryEntry still carries legacy hp/max_hp for
+            // the UI wire format (39-7 renames). Route through the npc's edge
+            // pool so the GM panel + snapshot stay consistent.
+            npc.core.edge.current = entry.hp;
+            npc.core.edge.max = entry.max_hp;
         }
     }
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
@@ -38,8 +41,8 @@ pub(super) fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_
     if let Some(ref cj) = ctx.character_json {
         if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
             if let Some(saved_ch) = ctx.snapshot.characters.first_mut() {
-                saved_ch.core.hp = *ctx.hp;
-                saved_ch.core.max_hp = *ctx.max_hp;
+                saved_ch.core.edge.current = *ctx.edge;
+                saved_ch.core.edge.max = *ctx.max_edge;
                 saved_ch.core.level = *ctx.level;
                 saved_ch.core.inventory = ctx.inventory.clone();
                 saved_ch.known_facts = ch.known_facts.clone();
@@ -141,7 +144,7 @@ pub(super) async fn persist_game_state(
                 player = %ctx.player_name_for_save,
                 turn = ctx.turn_manager.interaction(),
                 location = %ctx.current_location,
-                ctx.hp = *ctx.hp,
+                ctx.edge = *ctx.edge,
                 items = ctx.inventory.items.len(),
                 save_latency_ms = elapsed_ms,
                 "session.saved — game state persisted"

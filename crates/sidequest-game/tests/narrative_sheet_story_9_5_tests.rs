@@ -35,9 +35,8 @@ fn make_character(
             description: NonBlankString::new("A scarred wanderer of the wastes").unwrap(),
             personality: NonBlankString::new("Gruff but loyal").unwrap(),
             level: 5,
-            hp: 18,
-            max_hp: 30,
-            ac: 14,
+            edge: sidequest_game::creature_core::placeholder_edge_pool(),
+            acquired_advancements: vec![],
             xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
@@ -331,7 +330,7 @@ fn status_includes_conditions_when_present() {
 #[test]
 fn status_no_conditions_when_healthy() {
     let mut character = make_character("Reva", vec![], vec![]);
-    character.core.hp = character.core.max_hp; // Full HP
+    character.core.edge.current = character.core.edge.max; // Full HP
     character.core.statuses = vec![];
 
     let sheet = character.to_narrative_sheet("dark fantasy");

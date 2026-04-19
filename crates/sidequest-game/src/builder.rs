@@ -1351,6 +1351,12 @@ impl CharacterBuilder {
             )
             .send();
 
+        // Epic 39: hp_formula / class_hp_bases / default_ac computation stays
+        // wired (the GM panel depends on the `chargen.hp_formula_evaluated` /
+        // `chargen.hp_fallback` OTEL events and stories 39-3/6 will use the
+        // same evaluator to seed edge.base_max from YAML). For 39-2 we discard
+        // the computed values and install a placeholder edge pool.
+        let _ = (base_hp, ac);
         let character = Character {
             core: CreatureCore {
                 name: NonBlankString::new(name).map_err(|_| BuilderError::WrongPhase {
@@ -1363,12 +1369,11 @@ impl CharacterBuilder {
                 )
                 .unwrap(),
                 level: 1,
-                hp: base_hp,
-                max_hp: base_hp,
-                ac,
                 xp: 0,
                 inventory: Inventory { items, gold: 0 },
                 statuses: vec![],
+                edge: crate::creature_core::placeholder_edge_pool(),
+                acquired_advancements: vec![],
             },
             backstory: NonBlankString::new(&backstory_text).unwrap(),
             narrative_state: "Beginning their adventure".to_string(),

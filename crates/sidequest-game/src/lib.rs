@@ -33,7 +33,6 @@ pub mod engagement;
 pub mod faction_agenda;
 pub mod gossip;
 pub mod guest_npc;
-pub mod hp;
 pub mod inventory;
 pub mod journal;
 pub mod known_fact;
@@ -118,7 +117,6 @@ pub use encounter::{
 };
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use gossip::{GossipEngine, PropagationResult};
-pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item, ItemState};
 pub use known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 pub use lore::{

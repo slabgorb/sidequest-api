@@ -49,20 +49,15 @@ pub(crate) async fn apply_state_mutations(
             "XP awarded"
         );
 
-        // Check for level up
+        // Check for level up. Story 39-2: the level-up HP healing block is
+        // deleted — edge is a mechanical pool with its own recovery triggers
+        // (OnResolution etc.); levelling no longer refills composure.
+        // Story 39-3 wires per-class edge.base_max tuning on level-up; until
+        // then, level bumps do not touch edge.
         let threshold = sidequest_game::xp_for_level(*ctx.level + 1);
         if *ctx.xp >= threshold {
             *ctx.level += 1;
-            let new_max_hp = sidequest_game::level_to_hp(10, *ctx.level);
-            let hp_gain = new_max_hp - *ctx.max_hp;
-            *ctx.max_hp = new_max_hp;
-            *ctx.hp = sidequest_game::clamp_hp(*ctx.hp + hp_gain, 0, *ctx.max_hp);
-            tracing::info!(
-                new_level = *ctx.level,
-                new_max_hp = *ctx.max_hp,
-                hp_gain = hp_gain,
-                "Level up!"
-            );
+            tracing::info!(new_level = *ctx.level, "Level up!");
         }
     }
 
@@ -71,8 +66,8 @@ pub(crate) async fn apply_state_mutations(
     if let Some(ref cj) = ctx.character_json {
         if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
             // Sync mutable fields
-            ch.core.hp = *ctx.hp;
-            ch.core.max_hp = *ctx.max_hp;
+            ch.core.edge.current = *ctx.edge;
+            ch.core.edge.max = *ctx.max_edge;
             ch.core.level = *ctx.level;
             ch.core.inventory = ctx.inventory.clone();
 

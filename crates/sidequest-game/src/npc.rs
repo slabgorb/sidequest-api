@@ -94,7 +94,12 @@ pub struct Npc {
 impl Npc {
     /// Create a minimal NPC for combat — just enough for resolve_attack to work.
     /// Full NPC data (appearance, personality, etc.) can be enriched later.
-    pub fn combat_minimal(name: &str, hp: i32, max_hp: i32, level: u32) -> Self {
+    pub fn combat_minimal(name: &str, edge_current: i32, edge_max: i32, level: u32) -> Self {
+        // Epic 39: legacy `hp`/`max_hp` parameters now seed the EdgePool
+        // directly by position. Story 39-3 replaces the signature with an
+        // explicit `EdgePool` argument so the semantics are spelled at the
+        // call site; until then, (hp, max_hp) == (edge.current, edge.max,
+        // edge.base_max).
         Self {
             core: CreatureCore {
                 name: NonBlankString::new(name)
@@ -102,12 +107,17 @@ impl Npc {
                 description: NonBlankString::new("combatant").unwrap(),
                 personality: NonBlankString::new("hostile").unwrap(),
                 level,
-                hp,
-                max_hp,
-                ac: 10,
                 inventory: crate::Inventory::default(),
                 statuses: vec![],
                 xp: 0,
+                edge: crate::creature_core::EdgePool {
+                    current: edge_current,
+                    max: edge_max,
+                    base_max: edge_max,
+                    recovery_triggers: vec![crate::creature_core::RecoveryTrigger::OnResolution],
+                    thresholds: vec![],
+                },
+                acquired_advancements: vec![],
             },
             voice_id: None,
             disposition: Disposition::new(-20), // hostile
@@ -132,11 +142,6 @@ impl Npc {
     /// Get the NPC's current attitude based on disposition + OCEAN agreeableness offset.
     pub fn attitude(&self) -> Attitude {
         Disposition::new(self.effective_disposition()).attitude()
-    }
-
-    /// Apply HP damage or healing, clamped to [0, max_hp].
-    pub fn apply_hp_delta(&mut self, delta: i32) {
-        self.core.apply_hp_delta(delta);
     }
 
     /// Apply a disposition delta and return the new attitude.
@@ -247,17 +252,14 @@ impl Combatant for Npc {
     fn name(&self) -> &str {
         self.core.name()
     }
-    fn hp(&self) -> i32 {
-        Combatant::hp(&self.core)
+    fn edge(&self) -> i32 {
+        Combatant::edge(&self.core)
     }
-    fn max_hp(&self) -> i32 {
-        Combatant::max_hp(&self.core)
+    fn max_edge(&self) -> i32 {
+        Combatant::max_edge(&self.core)
     }
     fn level(&self) -> u32 {
         Combatant::level(&self.core)
-    }
-    fn ac(&self) -> i32 {
-        Combatant::ac(&self.core)
     }
 }
 
@@ -267,18 +269,18 @@ mod tests {
     use crate::inventory::Inventory;
 
     fn friendly_innkeeper() -> Npc {
+        use crate::creature_core::placeholder_edge_pool;
         Npc {
             core: CreatureCore {
                 name: NonBlankString::new("Marta the Innkeeper").unwrap(),
                 description: NonBlankString::new("A stout woman with flour-dusted hands").unwrap(),
                 personality: NonBlankString::new("Warm and gossipy").unwrap(),
                 level: 2,
-                hp: 12,
-                max_hp: 12,
-                ac: 10,
                 xp: 0,
                 statuses: vec![],
                 inventory: Inventory::default(),
+                edge: placeholder_edge_pool(),
+                acquired_advancements: vec![],
             },
             voice_id: Some(3),
             disposition: Disposition::new(15),
@@ -301,18 +303,18 @@ mod tests {
     }
 
     fn hostile_bandit() -> Npc {
+        use crate::creature_core::placeholder_edge_pool;
         Npc {
             core: CreatureCore {
                 name: NonBlankString::new("Razortooth").unwrap(),
                 description: NonBlankString::new("A scarred raider with missing teeth").unwrap(),
                 personality: NonBlankString::new("Cruel and cunning").unwrap(),
                 level: 4,
-                hp: 18,
-                max_hp: 22,
-                ac: 14,
                 xp: 0,
                 statuses: vec!["enraged".to_string()],
                 inventory: Inventory::default(),
+                edge: placeholder_edge_pool(),
+                acquired_advancements: vec![],
             },
             voice_id: None,
             disposition: Disposition::new(-20),
@@ -380,40 +382,33 @@ mod tests {
     }
 
     #[test]
-    fn combatant_is_alive() {
+    fn combatant_not_broken_at_full_edge() {
         let npc = friendly_innkeeper();
-        assert!(npc.is_alive());
+        assert!(!npc.is_broken());
     }
 
     #[test]
-    fn combatant_dead_at_zero() {
+    fn combatant_broken_at_zero_edge() {
         let mut npc = friendly_innkeeper();
-        npc.core.hp = 0;
-        assert!(!npc.is_alive());
+        npc.core.edge.current = 0;
+        assert!(npc.is_broken());
     }
 
-    // === HP delta ===
+    // === Edge delta ===
 
     #[test]
-    fn apply_damage() {
+    fn apply_edge_damage() {
         let mut npc = friendly_innkeeper();
-        npc.apply_hp_delta(-5);
-        assert_eq!(npc.core.hp, 7);
-    }
-
-    #[test]
-    fn damage_floored_at_zero() {
-        let mut npc = friendly_innkeeper();
-        npc.apply_hp_delta(-100);
-        assert_eq!(npc.core.hp, 0);
+        let before = npc.core.edge.current;
+        npc.core.edge.apply_delta(-3);
+        assert_eq!(npc.core.edge.current, before - 3);
     }
 
     #[test]
-    fn heal_capped_at_max() {
+    fn edge_floored_at_zero() {
         let mut npc = friendly_innkeeper();
-        npc.core.hp = 5;
-        npc.apply_hp_delta(100);
-        assert_eq!(npc.core.hp, 12);
+        npc.core.edge.apply_delta(-1000);
+        assert_eq!(npc.core.edge.current, 0);
     }
 
     // === Location ===

@@ -45,9 +45,16 @@ fn rich_character() -> Character {
                 .unwrap(),
             personality: NonBlankString::new("Cautious but fiercely loyal").unwrap(),
             level: 5,
-            hp: 38,
-            max_hp: 42,
-            ac: 15,
+            edge: sidequest_game::creature_core::EdgePool {
+                current: 38,
+                max: 42,
+                base_max: 42,
+                recovery_triggers: vec![
+                    sidequest_game::creature_core::RecoveryTrigger::OnResolution,
+                ],
+                thresholds: vec![],
+            },
+            acquired_advancements: vec![],
             xp: 1200,
             inventory: rich_inventory(),
             statuses: vec![],
@@ -227,8 +234,8 @@ fn persistence_roundtrip_preserves_full_character_state() {
     // AC-2: Level and XP
     assert_eq!(restored.core.level, 5, "Level must survive roundtrip");
     assert_eq!(restored.core.xp, 1200, "XP must survive roundtrip");
-    assert_eq!(restored.core.hp, 38, "HP must survive roundtrip");
-    assert_eq!(restored.core.max_hp, 42, "Max HP must survive roundtrip");
+    assert_eq!(restored.core.edge.current, 38, "HP must survive roundtrip");
+    assert_eq!(restored.core.edge.max, 42, "Max HP must survive roundtrip");
 
     // AC-3: Inventory items
     assert_eq!(
@@ -417,13 +424,14 @@ fn extract_character_state_returns_known_facts() {
 }
 
 #[test]
-fn extract_character_state_returns_hp_and_ac() {
+fn extract_character_state_returns_edge() {
     let snapshot = rich_snapshot();
     let result = extract_character_state(&snapshot).unwrap();
 
-    assert_eq!(result.hp, 38, "HP must be extracted");
-    assert_eq!(result.max_hp, 42, "Max HP must be extracted");
-    assert_eq!(result.ac, 15, "AC must be extracted");
+    // Story 39-2: edge/max_edge replace hp/max_hp/ac. Fixture values:
+    // current=38, max=42 (base_max=42).
+    assert_eq!(result.edge, 38, "edge.current must be extracted");
+    assert_eq!(result.max_edge, 42, "edge.max must be extracted");
 }
 
 #[test]
@@ -505,9 +513,9 @@ fn end_to_end_save_load_extract_roundtrip() {
     assert_eq!(state.character_name.as_str(), "Kael Stormwind");
     assert_eq!(state.level, 5);
     assert_eq!(state.xp, 1200);
-    assert_eq!(state.hp, 38);
-    assert_eq!(state.max_hp, 42);
-    assert_eq!(state.ac, 15);
+    // Story 39-2: edge/max_edge replace hp/max_hp/ac. Fixture: 38/42.
+    assert_eq!(state.edge, 38);
+    assert_eq!(state.max_edge, 42);
     assert_eq!(state.inventory.items.len(), 3);
     assert_eq!(state.inventory.gold, 150);
     assert_eq!(state.known_facts.len(), 4);

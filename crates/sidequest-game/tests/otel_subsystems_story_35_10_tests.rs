@@ -78,19 +78,25 @@ fn find_events(events: &[WatcherEvent], component: &str, action: &str) -> Vec<Wa
 /// tests. All other fields are given sensible defaults — these tests care only
 /// about the `is_friendly` flag and the HP pair that drives the bloodied check
 /// inside `broadcast_state_changes`.
-fn make_friendly(name: &str, hp: i32, max_hp: i32) -> Character {
+fn make_friendly(name: &str, edge: i32, max_edge: i32) -> Character {
+    use sidequest_game::creature_core::{EdgePool, RecoveryTrigger};
     Character {
         core: CreatureCore {
             name: NonBlankString::new(name).unwrap(),
             description: NonBlankString::new("A test combatant").unwrap(),
             personality: NonBlankString::new("stoic").unwrap(),
             level: 3,
-            hp,
-            max_hp,
-            ac: 15,
             xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
+            edge: EdgePool {
+                current: edge,
+                max: max_edge,
+                base_max: max_edge,
+                recovery_triggers: vec![RecoveryTrigger::OnResolution],
+                thresholds: vec![],
+            },
+            acquired_advancements: vec![],
         },
         backstory: NonBlankString::new("Test backstory").unwrap(),
         narrative_state: "Exploring".to_string(),
@@ -763,7 +769,7 @@ fn wiring_broadcast_state_changes_reaches_combatant_bloodied_in_production() {
     // Behavioral wiring test (rework #3 — Option A, Architect decision).
     //
     // Prior attempts used `include_str!` + `src.contains(...)` to source-grep
-    // for call sites. Both earlier targets (`Combatant::hp(` and
+    // for call sites. Both earlier targets (`Combatant::edge(` and
     // `hp_fraction(`) were vacuous — the first matched unrelated inline
     // accessor calls, the second matched a doc comment. Source-greppy wiring
     // assertions are structurally loophole-prone.

@@ -85,11 +85,6 @@ fn default_friendly() -> bool {
 }
 
 impl Character {
-    /// Apply HP damage or healing, clamped to [0, max_hp].
-    pub fn apply_hp_delta(&mut self, delta: i32) {
-        self.core.apply_hp_delta(delta);
-    }
-
     /// Apply a four-tier archetype resolution to the character — sets
     /// both the display name (`resolved_archetype`) and the full
     /// tier-annotated provenance (`archetype_provenance`) in one place.
@@ -136,8 +131,11 @@ impl Character {
             })
             .collect();
 
-        let status =
-            CharacterStatus::from_creature(self.core.hp, self.core.max_hp, &self.core.statuses);
+        let status = CharacterStatus::from_creature(
+            self.core.edge.current,
+            self.core.edge.max,
+            &self.core.statuses,
+        );
 
         NarrativeSheet {
             identity,
@@ -152,17 +150,14 @@ impl Combatant for Character {
     fn name(&self) -> &str {
         self.core.name()
     }
-    fn hp(&self) -> i32 {
-        Combatant::hp(&self.core)
+    fn edge(&self) -> i32 {
+        Combatant::edge(&self.core)
     }
-    fn max_hp(&self) -> i32 {
-        Combatant::max_hp(&self.core)
+    fn max_edge(&self) -> i32 {
+        Combatant::max_edge(&self.core)
     }
     fn level(&self) -> u32 {
         Combatant::level(&self.core)
-    }
-    fn ac(&self) -> i32 {
-        Combatant::ac(&self.core)
     }
 }
 
@@ -196,18 +191,18 @@ mod tests {
 
     /// Helper to build a valid Character for testing.
     fn test_character() -> Character {
+        use crate::creature_core::placeholder_edge_pool;
         Character {
             core: CreatureCore {
                 name: NonBlankString::new("Thorn Ironhide").unwrap(),
                 description: NonBlankString::new("A scarred dwarf warrior").unwrap(),
                 personality: NonBlankString::new("Gruff but loyal").unwrap(),
                 level: 3,
-                hp: 25,
-                max_hp: 30,
-                ac: 16,
                 xp: 0,
                 inventory: Inventory::default(),
                 statuses: vec![],
+                edge: placeholder_edge_pool(),
+                acquired_advancements: vec![],
             },
             backstory: NonBlankString::new("Raised in the iron mines").unwrap(),
             narrative_state: "Exploring the wastes".to_string(),
@@ -241,15 +236,15 @@ mod tests {
     }
 
     #[test]
-    fn combatant_hp() {
+    fn combatant_edge() {
         let c = test_character();
-        assert_eq!(Combatant::hp(&c), 25);
+        assert_eq!(Combatant::edge(&c), c.core.edge.current);
     }
 
     #[test]
-    fn combatant_max_hp() {
+    fn combatant_max_edge() {
         let c = test_character();
-        assert_eq!(Combatant::max_hp(&c), 30);
+        assert_eq!(Combatant::max_edge(&c), c.core.edge.max);
     }
 
     #[test]
@@ -259,53 +254,33 @@ mod tests {
     }
 
     #[test]
-    fn combatant_ac() {
+    fn combatant_not_broken_at_full_edge() {
         let c = test_character();
-        assert_eq!(Combatant::ac(&c), 16);
+        assert!(!c.is_broken());
     }
 
     #[test]
-    fn combatant_is_alive() {
-        let c = test_character();
-        assert!(c.is_alive());
-    }
-
-    #[test]
-    fn combatant_is_dead_at_zero() {
+    fn combatant_broken_at_zero_edge() {
         let mut c = test_character();
-        c.core.hp = 0;
-        assert!(!c.is_alive());
+        c.core.edge.current = 0;
+        assert!(c.is_broken());
     }
 
-    // === HP delta (uses clamp_hp) ===
+    // === Edge delta (uses EdgePool::apply_delta) ===
 
     #[test]
-    fn apply_damage() {
+    fn apply_damage_via_edge() {
         let mut c = test_character();
-        c.apply_hp_delta(-10);
-        assert_eq!(c.core.hp, 15);
-    }
-
-    #[test]
-    fn apply_healing() {
-        let mut c = test_character();
-        c.core.hp = 10;
-        c.apply_hp_delta(5);
-        assert_eq!(c.core.hp, 15);
-    }
-
-    #[test]
-    fn heal_capped_at_max() {
-        let mut c = test_character();
-        c.apply_hp_delta(100);
-        assert_eq!(c.core.hp, 30); // max_hp
+        let before = c.core.edge.current;
+        c.core.edge.apply_delta(-3);
+        assert_eq!(c.core.edge.current, before - 3);
     }
 
     #[test]
     fn damage_floored_at_zero() {
         let mut c = test_character();
-        c.apply_hp_delta(-100);
-        assert_eq!(c.core.hp, 0);
+        c.core.edge.apply_delta(-1000);
+        assert_eq!(c.core.edge.current, 0);
     }
 
     // === Serde round-trip ===
@@ -316,13 +291,13 @@ mod tests {
         let json = serde_json::to_string(&c).unwrap();
         let back: Character = serde_json::from_str(&json).unwrap();
         assert_eq!(back.core.name.as_str(), "Thorn Ironhide");
-        assert_eq!(back.core.hp, 25);
+        assert_eq!(back.core.edge.base_max, c.core.edge.base_max);
         assert_eq!(back.core.level, 3);
     }
 
     #[test]
     fn blank_name_rejected_in_json() {
-        let json = r#"{"name":"","description":"x","backstory":"x","personality":"x","narrative_state":"","hooks":[],"char_class":"Fighter","race":"Dwarf","level":1,"hp":10,"max_hp":10,"ac":10,"stats":{},"inventory":{"items":[],"gold":0},"statuses":[]}"#;
+        let json = r#"{"name":"","description":"x","backstory":"x","personality":"x","narrative_state":"","hooks":[],"char_class":"Fighter","race":"Dwarf","level":1,"edge":{"current":5,"max":5,"base_max":5,"recovery_triggers":[],"thresholds":[]},"stats":{},"inventory":{"items":[],"gold":0},"statuses":[]}"#;
         let result = serde_json::from_str::<Character>(json);
         assert!(result.is_err(), "blank name should fail deserialization");
     }

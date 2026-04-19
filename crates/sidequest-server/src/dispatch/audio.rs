@@ -31,8 +31,8 @@ pub(crate) async fn process_audio(
         let mood_ctx = sidequest_game::MoodContext {
             in_combat,
             in_chase,
-            party_health_pct: if *ctx.max_hp > 0 {
-                *ctx.hp as f32 / *ctx.max_hp as f32
+            party_health_pct: if *ctx.max_edge > 0 {
+                *ctx.edge as f32 / *ctx.max_edge as f32
             } else {
                 1.0
             },

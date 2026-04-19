@@ -3,22 +3,39 @@
 //! Story 1-13: Extracted from Character and NPC to eliminate duplication.
 //! Both types embed `CreatureCore` via composition.
 //!
-//! Story 39-1 (epic 39): This file also hosts the `EdgePool` type
-//! family — `EdgePool`, `EdgeThreshold`, `RecoveryTrigger`, and
-//! `DeltaResult`. These are kept here (rather than in a dedicated
-//! module) because later stories wire `EdgePool` directly into
-//! `CreatureCore`; colocation keeps the eventual field + impl in the
-//! same file. AC5 still forbids `EdgePool` references in dispatch/,
-//! server/, or the `CreatureCore` struct body until 39-2 lands.
+//! Epic 39 — Edge / Composure Combat:
+//!   * Story 39-1 introduced the `EdgePool` type family.
+//!   * Story 39-2 removed the legacy `hp/max_hp/ac` fields from this
+//!     struct and added `edge: EdgePool` + `acquired_advancements:
+//!     Vec<String>`. Constructors synthesize a placeholder `EdgePool`
+//!     with `base_max == 10`; 39-3 tunes per-class via YAML.
 
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::combatant::Combatant;
-use crate::hp::clamp_hp;
 use crate::inventory::Inventory;
 use crate::thresholds::{detect_crossings, ThresholdAt};
+
+/// Default placeholder base_max for edge pools synthesized by constructors
+/// that haven't yet been wired to per-class YAML (story 39-3).
+pub const PLACEHOLDER_EDGE_BASE_MAX: i32 = 10;
+
+/// Build a placeholder `EdgePool` for constructors that do not yet have
+/// per-class edge tuning (story 39-3 replaces individual call-sites with
+/// YAML-driven values). The pool starts at full composure, carries
+/// `OnResolution` as the default recovery trigger, and has no authored
+/// thresholds — those are content in 39-6.
+pub fn placeholder_edge_pool() -> EdgePool {
+    EdgePool {
+        current: PLACEHOLDER_EDGE_BASE_MAX,
+        max: PLACEHOLDER_EDGE_BASE_MAX,
+        base_max: PLACEHOLDER_EDGE_BASE_MAX,
+        recovery_triggers: vec![RecoveryTrigger::OnResolution],
+        thresholds: vec![],
+    }
+}
 
 /// Shared fields for any creature (Character or NPC).
 ///
@@ -34,12 +51,6 @@ pub struct CreatureCore {
     pub personality: NonBlankString,
     /// Creature level (1+).
     pub level: u32,
-    /// Current hit points (0..=max_hp).
-    pub hp: i32,
-    /// Maximum hit points (>= 1).
-    pub max_hp: i32,
-    /// Armor class.
-    pub ac: i32,
     /// Experience points accumulated.
     #[serde(default)]
     pub xp: u32,
@@ -47,54 +58,17 @@ pub struct CreatureCore {
     pub inventory: Inventory,
     /// Active status conditions.
     pub statuses: Vec<String>,
-}
-
-impl CreatureCore {
-    /// Apply HP damage or healing, clamped to [0, max_hp].
-    ///
-    /// Emits a `creature.hp_delta` watcher event so the GM panel can verify
-    /// HP mutations. Story 28-2 added the WatcherEventBuilder emission;
-    /// story 28-12 added the parallel `tracing::info_span!` for log-level
-    /// visibility — both channels stay because they serve different
-    /// audiences (broadcast for GM panel, tracing for stdout/jaeger).
-    pub fn apply_hp_delta(&mut self, delta: i32) {
-        let old_hp = self.hp;
-        self.hp = clamp_hp(self.hp, delta, self.max_hp);
-        let clamped = self.hp != old_hp + delta;
-
-        // OTEL: creature.hp_delta — broadcast for the GM panel (story 28-2).
-        WatcherEventBuilder::new("creature", WatcherEventType::StateTransition)
-            .field("action", "hp_delta")
-            .field("name", self.name.as_str())
-            .field("old_hp", old_hp)
-            .field("new_hp", self.hp)
-            .field("delta", delta)
-            .field("max_hp", self.max_hp)
-            .field("clamped", clamped)
-            .send();
-
-        // tracing span — for log/jaeger consumers (story 28-12).
-        let span = tracing::info_span!(
-            "creature.hp_delta",
-            name = %self.name,
-            old_hp = old_hp,
-            new_hp = self.hp,
-            delta = delta,
-            clamped = clamped,
-        );
-        let _guard = span.enter();
-    }
+    /// Composure pool — the HP analogue in epic 39. Stories 39-3/4/6
+    /// tune thresholds, recovery triggers, and per-class base_max.
+    pub edge: EdgePool,
+    /// Advancement ids the creature has acquired (epic 39 mechanical
+    /// progression). Populated by 39-8; stays empty at construction.
+    #[serde(default)]
+    pub acquired_advancements: Vec<String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════
 // Epic 39 — EdgePool composure currency (story 39-1)
-//
-// EdgePool is the first-class composure pool that replaces phantom HP as
-// the axis combat, social, and pressure scenes swing on. Story 39-1 lands
-// the types only — no `edge` field on CreatureCore yet (that's 39-2), no
-// dispatch wiring (that's 39-4). Helpers route through
-// `crate::thresholds` so ResourcePool and EdgePool mint LoreFragments via
-// the same code path.
 // ═══════════════════════════════════════════════════════════════════════
 
 /// A downward threshold on an `EdgePool`.
@@ -165,11 +139,6 @@ pub struct DeltaResult {
 }
 
 /// First-class composure pool for a creature (epic 39).
-///
-/// Story 39-1 lands the type + helpers. It is intentionally *not* yet
-/// referenced from `CreatureCore`, `dispatch/`, or `server/` — that
-/// wiring lands in 39-2 and 39-4. AC5 enforces this: `EdgePool` must
-/// appear only in `creature_core.rs` and its tests at this point.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EdgePool {
     /// Current composure value (clamped to `[0, max]`).
@@ -204,21 +173,58 @@ impl EdgePool {
     }
 }
 
+impl CreatureCore {
+    /// Apply an edge delta to this creature's composure pool and emit
+    /// the canonical `creature.hp_delta` WatcherEvent + tracing span.
+    ///
+    /// Story 39-2: replaces the deleted `apply_hp_delta`. Story 39-4 wires
+    /// dispatch-level `edge_delta` routing; this method is the per-creature
+    /// mutation point that every caller should route through so the GM
+    /// panel observes the composure change. The event name is retained as
+    /// `creature.hp_delta` for dashboard continuity — 39-7 renames it
+    /// alongside the wire rename.
+    pub fn apply_edge_delta(&mut self, delta: i32) -> DeltaResult {
+        let old_current = self.edge.current;
+        let result = self.edge.apply_delta(delta);
+        let new_current = self.edge.current;
+        let clamped = new_current != old_current.saturating_add(delta);
+
+        WatcherEventBuilder::new("creature", WatcherEventType::StateTransition)
+            .field("action", "hp_delta")
+            .field("name", self.name.as_str())
+            .field("old_hp", old_current)
+            .field("new_hp", new_current)
+            .field("delta", delta)
+            .field("max_hp", self.edge.max)
+            .field("clamped", clamped)
+            .send();
+
+        let span = tracing::info_span!(
+            "creature.hp_delta",
+            name = %self.name,
+            old_hp = old_current,
+            new_hp = new_current,
+            delta = delta,
+            clamped = clamped,
+        );
+        let _guard = span.enter();
+
+        result
+    }
+}
+
 impl Combatant for CreatureCore {
     fn name(&self) -> &str {
         self.name.as_str()
     }
-    fn hp(&self) -> i32 {
-        self.hp
+    fn edge(&self) -> i32 {
+        self.edge.current
     }
-    fn max_hp(&self) -> i32 {
-        self.max_hp
+    fn max_edge(&self) -> i32 {
+        self.edge.max
     }
     fn level(&self) -> u32 {
         self.level
-    }
-    fn ac(&self) -> i32 {
-        self.ac
     }
 }
 
@@ -232,12 +238,11 @@ mod tests {
             description: NonBlankString::new("A test creature").unwrap(),
             personality: NonBlankString::new("Testy").unwrap(),
             level: 3,
-            hp: 20,
-            max_hp: 30,
-            ac: 15,
             xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
+            edge: placeholder_edge_pool(),
+            acquired_advancements: vec![],
         }
     }
 
@@ -245,37 +250,45 @@ mod tests {
     fn combatant_accessors() {
         let c = test_core();
         assert_eq!(c.name(), "Test Creature");
-        assert_eq!(Combatant::hp(&c), 20);
-        assert_eq!(Combatant::max_hp(&c), 30);
+        assert_eq!(Combatant::edge(&c), PLACEHOLDER_EDGE_BASE_MAX);
+        assert_eq!(Combatant::max_edge(&c), PLACEHOLDER_EDGE_BASE_MAX);
         assert_eq!(Combatant::level(&c), 3);
-        assert_eq!(Combatant::ac(&c), 15);
     }
 
     #[test]
-    fn combatant_is_alive() {
+    fn combatant_not_broken_at_full_edge() {
         let c = test_core();
-        assert!(c.is_alive());
+        assert!(!c.is_broken());
     }
 
     #[test]
-    fn apply_damage() {
+    fn combatant_broken_when_edge_drained() {
         let mut c = test_core();
-        c.apply_hp_delta(-10);
-        assert_eq!(c.hp, 10);
+        c.edge.current = 0;
+        assert!(c.is_broken());
     }
 
     #[test]
-    fn heal_capped_at_max() {
+    fn apply_delta_debits_edge() {
         let mut c = test_core();
-        c.apply_hp_delta(100);
-        assert_eq!(c.hp, 30);
+        let result = c.edge.apply_delta(-3);
+        assert_eq!(result.new_current, PLACEHOLDER_EDGE_BASE_MAX - 3);
+        assert_eq!(c.edge.current, PLACEHOLDER_EDGE_BASE_MAX - 3);
     }
 
     #[test]
-    fn damage_floored_at_zero() {
+    fn apply_delta_floors_at_zero() {
         let mut c = test_core();
-        c.apply_hp_delta(-100);
-        assert_eq!(c.hp, 0);
+        c.edge.apply_delta(-1000);
+        assert_eq!(c.edge.current, 0);
+    }
+
+    #[test]
+    fn apply_delta_caps_at_max() {
+        let mut c = test_core();
+        c.edge.current = 5;
+        c.edge.apply_delta(1000);
+        assert_eq!(c.edge.current, c.edge.max);
     }
 
     #[test]
@@ -284,7 +297,17 @@ mod tests {
         let json = serde_json::to_string(&c).unwrap();
         let back: CreatureCore = serde_json::from_str(&json).unwrap();
         assert_eq!(back.name.as_str(), "Test Creature");
-        assert_eq!(back.hp, 20);
+        assert_eq!(back.edge.base_max, PLACEHOLDER_EDGE_BASE_MAX);
         assert_eq!(back.level, 3);
+        assert!(back.acquired_advancements.is_empty());
+    }
+
+    #[test]
+    fn placeholder_edge_pool_has_on_resolution_trigger() {
+        let pool = placeholder_edge_pool();
+        assert!(pool
+            .recovery_triggers
+            .contains(&RecoveryTrigger::OnResolution));
+        assert_eq!(pool.base_max, PLACEHOLDER_EDGE_BASE_MAX);
     }
 }

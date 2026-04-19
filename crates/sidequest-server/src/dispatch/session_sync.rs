@@ -47,8 +47,8 @@ pub(crate) async fn sync_back_to_shared_session(
 
         // Sync acting player's character data to PlayerState for other players' PARTY_STATUS
         if let Some(ps) = ss.players.get_mut(ctx.player_id) {
-            ps.character_hp = *ctx.hp;
-            ps.character_max_hp = *ctx.max_hp;
+            ps.character_hp = *ctx.edge;
+            ps.character_max_hp = *ctx.max_edge;
             ps.character_level = *ctx.level;
             ps.character_xp = *ctx.xp;
             ps.character_class = char_class.to_string();

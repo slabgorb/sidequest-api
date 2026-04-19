@@ -96,12 +96,14 @@ pub(crate) async fn build_prompt_context(
 
     // Build state summary for grounding narration (Bug 1: include location + entities)
     let mut state_summary = format!(
-        "Character: {} (HP {}/{}, Level {}, XP {})\nGenre: {}",
-        ctx.char_name, *ctx.hp, *ctx.max_hp, *ctx.level, *ctx.xp, ctx.genre_slug,
+        "Character: {} (Edge {}/{}, Level {}, XP {})\nGenre: {}",
+        ctx.char_name, *ctx.edge, *ctx.max_edge, *ctx.level, *ctx.xp, ctx.genre_slug,
     );
 
-    // Death directive — the narrator MUST describe the character's death
-    if ctx.snapshot.player_dead || *ctx.hp <= 0 {
+    // Broken directive — narrator must describe the creature breaking. Until
+    // 39-7 lands the wire rename, `player_dead` stays as the protocol field
+    // name but is driven off edge<=0.
+    if ctx.snapshot.player_dead || *ctx.edge <= 0 {
         state_summary.push_str(
             "\n\n⚠️ CHARACTER IS DEAD (HP 0). The character has fallen in combat. \
              Narrate the death scene — describe how they fell, what killed them, \
