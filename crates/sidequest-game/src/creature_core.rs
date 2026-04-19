@@ -10,6 +10,7 @@ use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 use crate::combatant::Combatant;
 use crate::hp::clamp_hp;
 use crate::inventory::Inventory;
+use crate::thresholds::{detect_crossings, ThresholdAt};
 
 /// Shared fields for any creature (Character or NPC).
 ///
@@ -74,6 +75,119 @@ impl CreatureCore {
             clamped = clamped,
         );
         let _guard = span.enter();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Epic 39 — EdgePool composure currency (story 39-1)
+//
+// EdgePool is the first-class composure pool that replaces phantom HP as
+// the axis combat, social, and pressure scenes swing on. Story 39-1 lands
+// the types only — no `edge` field on CreatureCore yet (that's 39-2), no
+// dispatch wiring (that's 39-4). Helpers route through
+// `crate::thresholds` so ResourcePool and EdgePool mint LoreFragments via
+// the same code path.
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A downward threshold on an `EdgePool`.
+///
+/// Mirrors `ResourceThreshold`, but typed for i32 composure values so
+/// edge scenes don't have to round-trip through f64.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EdgeThreshold {
+    /// Value at which this threshold fires (crossed downward).
+    pub at: i32,
+    /// Event identifier emitted when crossed (e.g. `edge_strained`).
+    pub event_id: String,
+    /// Narrator hint injected into prompt when crossed.
+    pub narrator_hint: String,
+}
+
+impl ThresholdAt for EdgeThreshold {
+    type Value = i32;
+
+    fn at(&self) -> i32 {
+        self.at
+    }
+    fn event_id(&self) -> &str {
+        &self.event_id
+    }
+    fn narrator_hint(&self) -> &str {
+        &self.narrator_hint
+    }
+}
+
+/// Trigger that grants composure back to an `EdgePool`.
+///
+/// Authored in genre YAML (39-6) and resolved during beat dispatch
+/// (39-4). Story 39-1 only introduces the shape; no engine wiring yet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RecoveryTrigger {
+    /// Restore edge when the encounter resolves (win or escape).
+    OnResolution,
+    /// An ally spending an action to shore up the creature.
+    OnAllyRescue,
+    /// A specific authored beat landing, optionally gated on
+    /// the creature being strained (`current <= max / 4`).
+    OnBeatSuccess {
+        /// Beat identifier that triggers the recovery.
+        beat_id: String,
+        /// How much edge to restore.
+        amount: i32,
+        /// If true, only fires while the pool is in the strained band.
+        while_strained: bool,
+    },
+}
+
+/// Result of applying a delta to an `EdgePool`.
+///
+/// Mirrors the crossed-threshold shape of `ResourcePatchResult` but is
+/// i32-valued and carries the threshold type specific to EdgePool.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeltaResult {
+    /// Pool value after the delta was applied (post-clamp).
+    pub new_current: i32,
+    /// Thresholds crossed by this delta (downward only).
+    pub crossed: Vec<EdgeThreshold>,
+}
+
+/// First-class composure pool for a creature (epic 39).
+///
+/// Story 39-1 lands the type + helpers. It is intentionally *not* yet
+/// referenced from `CreatureCore`, `dispatch/`, or `server/` — that
+/// wiring lands in 39-2 and 39-4. AC5 enforces this: `EdgePool` must
+/// appear only in `creature_core.rs` and its tests at this point.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EdgePool {
+    /// Current composure value (clamped to `[0, max]`).
+    pub current: i32,
+    /// Current maximum composure (may be reduced mid-scene).
+    pub max: i32,
+    /// Baseline max — the starting ceiling, used when recovery
+    /// triggers restore `max` back up after temporary reductions.
+    pub base_max: i32,
+    /// Triggers that refill edge during play.
+    pub recovery_triggers: Vec<RecoveryTrigger>,
+    /// Downward thresholds that fire named events when crossed.
+    pub thresholds: Vec<EdgeThreshold>,
+}
+
+impl EdgePool {
+    /// Apply a composure delta and detect threshold crossings.
+    ///
+    /// Positive delta increases `current` (capped at `max`). Negative
+    /// delta decreases `current` (floored at 0 — composure never goes
+    /// negative; a creature at 0 is broken). Returns the new current
+    /// plus any thresholds crossed downward by this delta.
+    pub fn apply_delta(&mut self, delta: i32) -> DeltaResult {
+        let old_current = self.current;
+        let raw = self.current.saturating_add(delta);
+        self.current = raw.clamp(0, self.max);
+        let crossed = detect_crossings(&self.thresholds, old_current, self.current);
+        DeltaResult {
+            new_current: self.current,
+            crossed,
+        }
     }
 }
 
